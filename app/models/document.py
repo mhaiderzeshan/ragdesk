@@ -1,8 +1,6 @@
 from sqlalchemy import Integer, String, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.ext.declarative import declarative_base
-
-Base = declarative_base()
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.db import Base
 
 
 class Document(Base):
@@ -12,4 +10,4 @@ class Document(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
 
     # Relationship to Chunks
-#    chunks = relationship("Chunk", back_populates="document")
+    chunks = relationship("Chunk", back_populates="document")
