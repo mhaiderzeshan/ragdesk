@@ -1,17 +1,23 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import SecretStr
 
 
 class Settings(BaseSettings):
-    class config:
-        env_file = ".env"
-        extra = "ignore"
 
+    # Database settings
     DB_USER: str
     DB_PASSWORD: SecretStr
     DB_HOST: str
     DB_PORT: int
     DB_NAME: str
 
+    # JWT settings
+    SECRET_KEY: SecretStr
+    ALGORITHM: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
-settings = Settings() # type: ignore
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8")
+
+
+settings = Settings()  # type: ignore
