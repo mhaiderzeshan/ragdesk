@@ -1,6 +1,7 @@
 from app.schemas import RegistrationRequest, OrganizationCreate, UserCreate
 from app.repositories.auth import AuthRepository
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, verify_password, create_access_token
+from app.models import User
 
 
 class AuthService:
@@ -20,3 +21,20 @@ class AuthService:
             user_in=user_data,
             hashed_password=hashed_password
         )
+
+    async def authenticate_user(self, email: str, password: str):
+        user = await self.repo.get_user_by_email(email)
+        if not user:
+            return None
+        if not verify_password(password, user.hashed_password):
+            return None
+        return user
+
+    def create_user_token(self, user: User) -> str:
+        # Create the JWT token with the user data
+        token_data = {
+            "sub": str(user.id),
+            "org_id": str(user.org_id),
+            "email": user.email
+        }
+        return create_access_token(data=token_data)

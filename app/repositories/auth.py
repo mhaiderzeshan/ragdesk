@@ -1,8 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.models import User, Organization
 from app.schemas import OrganizationCreate, UserCreate
-from app.core.security import get_password_hash
 
 
 class AuthRepository:
@@ -32,3 +32,9 @@ class AuthRepository:
             # Final flush to ensure IDs are populated for the return
             await self.session.flush()
             return new_user
+
+    async def get_user_by_email(self, email: str) -> User | None:
+        result = await self.session.execute(
+            select(User).where(User.email == email)
+        )
+        return result.scalar_one_or_none()
