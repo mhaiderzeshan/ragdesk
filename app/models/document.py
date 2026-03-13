@@ -1,13 +1,34 @@
-from sqlalchemy import Integer, String, ForeignKey
+from enum import Enum
+from sqlalchemy import String, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
+from .chunk import Chunk
+from .base_mixins import UUIDIDMixin, TimestampMixin
+import uuid
 
 
-class Document(Base):
+class DocumentStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class Document(Base, UUIDIDMixin, TimestampMixin):
     __tablename__ = "documents"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    filename: Mapped[str] = mapped_column(String(255))
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
 
-    # Relationship to Chunks
-    chunks = relationship("Chunk", back_populates="document")
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(
+        "orgs.id", ondelete="CASCADE"), nullable=False, index=True)
+    kb_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(
+        "kbs.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    source_type: Mapped[str] = mapped_column(String(50))  # e.g., 'file', 'url'
+    status: Mapped[DocumentStatus] = mapped_column(
+        SQLEnum(DocumentStatus), default=DocumentStatus.PENDING
+    )
+
+    filename: Mapped[str] = mapped_column(String(255), nullable=True)
+
+    # Relationships
+    chunks: Mapped[list["Chunk"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan")

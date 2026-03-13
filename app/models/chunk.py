@@ -1,24 +1,30 @@
-from sqlalchemy import Integer, String, Text, JSON, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import Text, ForeignKey, Integer
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
+from .document import Document
+from .base_mixins import UUIDIDMixin, TimestampMixin
+import uuid
 
 
-class Chunk(Base):
+class Chunk(Base, UUIDIDMixin, TimestampMixin):
     __tablename__ = "chunks"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    doc_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("documents.id"), nullable=False)
+    # Joins can be slow during high-concurrency vector searches.Choose denormalization here to keep the vector query as fast as possible.
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(
+        "orgs.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(
+        "documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    chunk_index: Mapped[int] = mapped_column(
+        Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
 
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # We use JSONB for flexible metadata like page numbers
+    metadata_jsonb: Mapped[dict] = mapped_column(JSONB, server_default="{}")
 
-    # Remember
-    # 1536 is the standard dimension for OpenAI embeddings.
-    # If using local models (like Llama/Ollama), this might be 384 or 768.
-    embedding: Mapped[Vector] = mapped_column(Vector(1536))
+    # Vector dimension: 1536 is standard for OpenAI
+    embedding: Mapped[list[float]] = mapped_column(
+        Vector(1536), nullable=False)
 
-    metadata_info: Mapped[dict] = mapped_column(JSON, nullable=True)
-
-    document = relationship(
-        "Document", back_populates="chunks")
+    document: Mapped["Document"] = relationship(back_populates="chunks")
