@@ -31,3 +31,9 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     user_id: uuid.UUID | None = None
     org_id: uuid.UUID | None = None
+
+
+class UserContext(BaseModel):
+    user_id: uuid.UUID
+    org_id: uuid.UUID
+    email: EmailStr
