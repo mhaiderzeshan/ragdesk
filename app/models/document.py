@@ -1,5 +1,6 @@
 from enum import Enum
-from sqlalchemy import String, ForeignKey, Enum as SQLEnum
+from sqlalchemy import String, ForeignKey, Enum as SQLEnum, DateTime, text
+from datetime import datetime, timezone
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
 from .chunk import Chunk
@@ -28,6 +29,12 @@ class Document(Base, UUIDIDMixin, TimestampMixin):
     )
 
     filename: Mapped[str] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
 
     # Relationships
     chunks: Mapped[list["Chunk"]] = relationship(

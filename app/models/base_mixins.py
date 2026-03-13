@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime, timezone
-from sqlalchemy import DateTime
+from datetime import datetime
+from sqlalchemy import DateTime, text, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -18,5 +18,6 @@ class TimestampMixin:
     """Provides creation and update timestamps."""
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc)
+        server_default=func.now(),
+        nullable=False
     )

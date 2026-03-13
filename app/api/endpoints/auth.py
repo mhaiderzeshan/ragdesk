@@ -8,6 +8,8 @@ from app.schemas.auth import UserResponse, RegistrationRequest
 from app.repositories.auth import AuthRepository
 from app.services.auth import AuthService
 from app.schemas import Token
+from app.api.deps import get_current_user
+from app.schemas.auth import UserContext
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -25,17 +27,14 @@ async def register(
         user = await auth_service.register_new_org(payload)
         return user
     except IntegrityError as e:
-        # Handle database unique constraint violations (email or org name)
         error_str = str(e.orig).lower()
-        if "email" in error_str or "users_email_key" in error_str:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists")
-        elif "name" in error_str or "orgs_name_key" in error_str:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Organization name already exists")
+        print("INTEGRITY ERROR:", repr(e.orig))
+        if "users_email_key" in error_str or "uq_users_email" in error_str:
+            raise HTTPException(400, detail="Email already exists")
+        elif "orgs_name_key" in error_str or "uq_orgs_name" in error_str:
+            raise HTTPException(400, detail="Organization name already exists")
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Resource already exists")
+            raise HTTPException(400, detail=f"Resource already exists")
 
 
 @router.post("/login", response_model=Token)
@@ -56,3 +55,12 @@ async def login(
 
     access_token = auth_service.create_user_token(user)
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get("/me", response_model=UserContext)
+async def read_users_me(current_user: UserContext = Depends(get_current_user)):
+    """
+    Returns the current user's identity and organization context.
+    If the token is missing or invalid, FastAPI returns 401 automatically.
+    """
+    return current_user
