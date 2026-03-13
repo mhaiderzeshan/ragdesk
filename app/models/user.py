@@ -1,20 +1,15 @@
-from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey
+from sqlalchemy import String, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from app.db import Base
+from .base_mixins import UUIDIDMixin, TimestampMixin
 
 
-class User(Base):
+class User(Base, UUIDIDMixin, TimestampMixin):
     __tablename__ = "users"
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID, primary_key=True, index=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(
         String(255), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
 
     org_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("orgs.id", ondelete="CASCADE"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow)
