@@ -1,10 +1,14 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Text, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
-from .document import Document
-from .base_mixins import UUIDIDMixin, TimestampMixin
+if TYPE_CHECKING:
+    from app.models.document import Document
+from app.models.base_mixins import UUIDIDMixin, TimestampMixin
 import uuid
 
 

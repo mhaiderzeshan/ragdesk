@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    UPLOAD_DIR: str = "uploads"
+    MAX_FILE_SIZE_MB: int = 10
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8")
 
