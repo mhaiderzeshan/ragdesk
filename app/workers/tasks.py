@@ -1,8 +1,8 @@
 import os
 import asyncio
 from typing import List
-from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded, Retry
+from app.workers.celery_app import celery_app
 import pymupdf
 
 # For ChromaDB and OpenAI
@@ -96,7 +96,7 @@ async def _process_document_async(document_id: str, file_path: str, kb_id: str):
             raise
 
 
-@shared_task(bind=True, max_retries=3)
+@celery_app.task(bind=True, max_retries=3)
 def process_document(self, document_id: str, file_path: str, kb_id: str):
     """Celery task to handle async document processing."""
     print(f"Job received for document: {document_id}")
