@@ -29,6 +29,9 @@ class Document(Base, UUIDIDMixin, TimestampMixin):
     )
 
     filename: Mapped[str] = mapped_column(String(255), nullable=True)
+    file_path: Mapped[str] = mapped_column(String(1024), nullable=True)
+    error_msg: Mapped[str] = mapped_column(String(1024), nullable=True)
+    
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=text("NOW()"),

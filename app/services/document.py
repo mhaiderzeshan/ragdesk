@@ -20,7 +20,7 @@ async def create_document_record(
         id=document_id,
         kb_id=kb_id,
         filename=filename,
-        filepath=filepath,
+        file_path=filepath,
         status="pending"
     )
     db.add(doc)
