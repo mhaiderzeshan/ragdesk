@@ -21,6 +21,11 @@ class AuthRepository:
             self.session.add(new_org)
             await self.session.flush()
 
+            from app.models.knowledgebase import KnowledgeBase
+            new_kb = KnowledgeBase(name="Default", org_id=new_org.id)
+            self.session.add(new_kb)
+            await self.session.flush()
+
             # Using 'exclude' to handle the password logic gracefully
             user_data = user_in.model_dump(exclude={"password"})
             new_user = User(

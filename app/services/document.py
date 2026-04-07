@@ -8,9 +8,10 @@ from app.models.document import Document
 async def create_document_record(
     db: AsyncSession,
     document_id: str,
+    org_id: str, # Could be typed as uuid.UUID
     kb_id: str,
     filename: str,
-    filepath: str,
+    file_path: str,
 ) -> Document:
     """
     Insert a new document row with status=PENDING.
@@ -18,9 +19,11 @@ async def create_document_record(
     """
     doc = Document(
         id=document_id,
+        org_id=org_id,
         kb_id=kb_id,
+        source_type="file",
         filename=filename,
-        file_path=filepath,
+        file_path=file_path,
         status="pending"
     )
     db.add(doc)

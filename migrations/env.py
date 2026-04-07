@@ -10,6 +10,8 @@ from app.core.config import settings
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.knowledgebase import KnowledgeBase
+from app.models.document import Document
+from app.models.chunk import Chunk
 
 config = context.config
 

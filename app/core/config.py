@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     MAX_FILE_SIZE_MB: int = 10
 
+    # Redis settings
+    REDIS_URL: str
+
+    # OpenAI API Key
+    OPENAI_API_KEY: SecretStr
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8")
 
