@@ -1,6 +1,7 @@
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel
+from typing import Optional, Union
+from uuid import UUID
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UploadResponse(BaseModel):
@@ -11,13 +12,13 @@ class UploadResponse(BaseModel):
 
 
 class DocumentStatusResponse(BaseModel):
-    document_id: str
-    kb_id: str
+    document_id: Union[str, UUID] = Field(validation_alias="id")
+    kb_id: Union[str, UUID]
     filename: str
     status: str
     error_msg: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+

@@ -13,12 +13,76 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event
+from sqlalchemy import event, Text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db import Base, get_db
 from app.api.deps import get_current_user
 from app.schemas.auth import UserContext
+
+# ---------------------------------------------------------------------------
+# Register SQLite-compatible compilers for PostgreSQL-only column types.
+# This lets Base.metadata.create_all() succeed on the in-memory SQLite engine.
+# ---------------------------------------------------------------------------
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from pgvector.sqlalchemy import Vector
+from sqlalchemy.ext.compiler import compiles
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(type_, compiler, **kw):
+    return "TEXT"
+
+
+@compiles(Vector, "sqlite")
+def _compile_vector_sqlite(type_, compiler, **kw):
+    return "BLOB"
+
+
+@compiles(PG_UUID, "sqlite")
+def _compile_uuid_sqlite(type_, compiler, **kw):
+    return "CHAR(36)"
+
+
+# SQLAlchemy's UUID type calls value.hex in its bind_processor, which breaks
+# when the app passes plain strings (as it does — works fine on PostgreSQL).
+# Patch the Uuid type so both str and uuid.UUID are accepted on SQLite.
+from sqlalchemy import Uuid as SA_Uuid
+
+_original_bind_processor = SA_Uuid.bind_processor
+
+def _patched_bind_processor(self, dialect):
+    orig = _original_bind_processor(self, dialect)
+    if dialect.name != "sqlite":
+        return orig
+    def process(value):
+        if value is None:
+            return value
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        # Already a string — just return it
+        return str(value)
+    return process
+
+SA_Uuid.bind_processor = _patched_bind_processor
+
+# Also patch the result_processor so values read back are uuid.UUID objects
+_original_result_processor = SA_Uuid.result_processor
+
+def _patched_result_processor(self, dialect, coltype):
+    orig = _original_result_processor(self, dialect, coltype)
+    if dialect.name != "sqlite":
+        return orig
+    def process(value):
+        if value is None:
+            return value
+        if isinstance(value, uuid.UUID):
+            return value
+        return uuid.UUID(str(value))
+    return process
+
+SA_Uuid.result_processor = _patched_result_processor
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +103,14 @@ engine_test = create_async_engine(TEST_DATABASE_URL, echo=False)
 TestSessionLocal = async_sessionmaker(
     bind=engine_test, class_=AsyncSession, expire_on_commit=False
 )
+
+# SQLite doesn't have a NOW() function — register one so that
+# server_default=text("NOW()") on the Document model works.
+from sqlalchemy import event as sa_event
+
+@sa_event.listens_for(engine_test.sync_engine, "connect")
+def _register_sqlite_now(dbapi_conn, connection_record):
+    dbapi_conn.create_function("NOW", 0, lambda: datetime.now(timezone.utc).isoformat())
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -102,24 +174,25 @@ async def seed_document(seed_kb):
     """Insert a Document row with status=PENDING."""
     from app.models.document import Document
 
-    doc_id = str(uuid.uuid4())
+    doc_uuid = uuid.uuid4()
     now = datetime.now(timezone.utc)
 
     async with TestSessionLocal() as session:
         doc = Document(
-            id=doc_id,
+            id=doc_uuid,
             org_id=TEST_ORG_ID,
             kb_id=TEST_KB_ID,
             source_type="file",
             filename="test_report.pdf",
-            file_path=f"uploads/{doc_id}.pdf",
+            file_path=f"uploads/{doc_uuid}.pdf",
             status="pending",
             created_at=now,
             updated_at=now,
         )
         session.add(doc)
         await session.commit()
-    return doc_id
+    # Return string form — the endpoint receives string path params
+    return str(doc_uuid)
 
 
 # ---------------------------------------------------------------------------
