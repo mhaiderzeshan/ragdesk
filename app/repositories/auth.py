@@ -31,7 +31,9 @@ class AuthRepository:
             new_user = User(
                 **user_data,
                 hashed_password=hashed_password,
-                org_id=new_org.id
+                org_id=new_org.id,
+                # The first user in a newly created org is always an admin
+                role="admin",
             )
             self.session.add(new_user)
             # Final flush to ensure IDs are populated for the return

@@ -10,6 +10,7 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     email: EmailStr
     org_id: uuid.UUID
+    role: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -37,3 +38,4 @@ class UserContext(BaseModel):
     user_id: uuid.UUID
     org_id: uuid.UUID
     email: EmailStr
+    role: str = "user"

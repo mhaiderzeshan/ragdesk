@@ -11,5 +11,9 @@ class User(Base, UUIDIDMixin, TimestampMixin):
         String(255), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
 
+    # RBAC: "admin" can manage the org; "user" is a regular member
+    role: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="user")
+
     org_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("orgs.id", ondelete="CASCADE"), nullable=False)

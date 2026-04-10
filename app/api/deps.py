@@ -33,6 +33,7 @@ async def get_current_user(
         user_id_raw = payload.get("sub")
         org_id_raw = payload.get("org_id")
         email = payload.get("email")
+        role = payload.get("role", "user")
 
         if user_id_raw is None or org_id_raw is None or email is None:
             raise credentials_exception
@@ -44,7 +45,8 @@ async def get_current_user(
         return UserContext(
             user_id=user_id,
             org_id=org_id,
-            email=email
+            email=email,
+            role=role,
         )
 
     except (jwt.PyJWTError, ValueError):

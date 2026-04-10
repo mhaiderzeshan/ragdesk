@@ -5,7 +5,18 @@ from sqlalchemy import text
 
 from app.api.endpoints import auth
 from app.api.endpoints.document import router as document_router
+from app.api.endpoints.knowledgebase import router as kb_router
+from app.api.endpoints.chat import router as chat_router
+from app.api.endpoints.feedback import router as feedback_router
+from app.api.endpoints.eval import router as eval_router
 from app.db import Base, engine
+
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from app.core.logging import setup_logging
+from app.core.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
+
+setup_logging()
 
 
 @asynccontextmanager
@@ -20,6 +31,9 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+    
+    # Instrument SQLAlchemy
+    SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
     yield
     await engine.dispose()
 
@@ -31,6 +45,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+FastAPIInstrumentor.instrument_app(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,6 +60,10 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(document_router)
+app.include_router(kb_router)
+app.include_router(chat_router)
+app.include_router(feedback_router)
+app.include_router(eval_router)
 
 
 @app.get("/health", tags=["Health"])

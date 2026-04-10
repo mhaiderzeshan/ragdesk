@@ -35,6 +35,7 @@ class AuthService:
         token_data = {
             "sub": str(user.id),
             "org_id": str(user.org_id),
-            "email": user.email
+            "email": user.email,
+            "role": user.role,
         }
         return create_access_token(data=token_data)
