@@ -2,6 +2,7 @@
 Celery worker for document ingestion.
 Pipeline: extract text → chunk → embed → store Chunk rows in Postgres/pgvector.
 """
+
 import os
 import uuid
 import asyncio
@@ -11,13 +12,15 @@ from celery.exceptions import SoftTimeLimitExceeded
 from app.workers.celery_app import celery_app
 import pymupdf
 
-from openai import OpenAI
+import google.generativeai as genai
 from app.core.config import settings
 from app.services.document import update_document_status
 from app.db import SessionLocal
 
-# Initialize Embedding Model (OpenAI text-embedding-3-small → 1536-dim)
-openai_client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value())
+genai.configure(api_key=settings.GOOGLE_API_KEY.get_secret_value())
+
+EMBEDDING_MODEL = "models/gemini-embedding-001"
+
 
 # Text chunking
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
@@ -64,32 +67,33 @@ async def _process_document_async(
             doc_file.close()
 
             if not full_text.strip():
-                raise ValueError("Extracted text is empty. The document may be image-only or corrupt.")
+                raise ValueError(
+                    "Extracted text is empty. The document may be image-only or corrupt."
+                )
 
             # 3. Chunk text
             chunks = chunk_text(full_text)
             print(f"[{document_id}] Extracted {len(chunks)} chunks.")
 
             if chunks:
-                # 4. Generate embeddings in batches (OpenAI max 2048 inputs/call)
+                # 4. Generate embeddings (one per chunk)
                 embeddings: List[List[float]] = []
-                batch_size = 500
-                for i in range(0, len(chunks), batch_size):
-                    batch = chunks[i : i + batch_size]
-                    response = openai_client.embeddings.create(
-                        input=batch,
-                        model="text-embedding-3-small",  # → 1536 dims
+                for chunk_text_item in chunks:
+                    response = genai.embed_content(
+                        model=EMBEDDING_MODEL,
+                        content=chunk_text_item,
+                        task_type="retrieval_document",
+                        output_dimensionality=768,
                     )
-                    embeddings.extend([d.embedding for d in response.data])
+                    embeddings.append(response["embedding"])
 
                 # 5. Persist Chunk rows in Postgres (pgvector stores the vectors)
                 #    Delete any existing chunks first (idempotency / reindex support)
                 from sqlalchemy import delete as sql_delete
                 from app.models.chunk import Chunk as ChunkModel
+
                 await db.execute(
-                    sql_delete(ChunkModel).where(
-                        ChunkModel.document_id == document_id
-                    )
+                    sql_delete(ChunkModel).where(ChunkModel.document_id == document_id)
                 )
 
                 for idx, (text_chunk, embedding) in enumerate(zip(chunks, embeddings)):
@@ -109,13 +113,17 @@ async def _process_document_async(
             # 6. Update status → COMPLETED
             await update_document_status(db, document_id, "completed")
             await db.commit()
-            print(f"[{document_id}] Successfully processed — {len(chunks)} chunks stored.")
+            print(
+                f"[{document_id}] Successfully processed — {len(chunks)} chunks stored."
+            )
 
         except Exception as exc:
             error_msg = str(exc)
             print(f"[{document_id}] Failed: {error_msg}")
             try:
-                await update_document_status(db, document_id, "failed", error_msg=error_msg)
+                await update_document_status(
+                    db, document_id, "failed", error_msg=error_msg
+                )
                 await db.commit()
             except Exception as inner:
                 print(f"[{document_id}] Could not update failure status: {inner}")
@@ -123,6 +131,7 @@ async def _process_document_async(
 
 
 # Celery task
+
 
 @celery_app.task(bind=True, max_retries=3, soft_time_limit=300)
 def process_document(self, document_id: str, file_path: str, kb_id: str, org_id: str):

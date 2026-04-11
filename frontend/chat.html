@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat - RAGDesk</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <link rel="stylesheet" href="css/index.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/chat.css">
+</head>
+<body>
+
+  <div class="chat-layout animate-fade-in">
+    
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <h2 class="text-gradient"><i class="fas fa-layer-group"></i> RAGDesk</h2>
+      <ul class="nav-menu">
+        <li class="nav-item">
+          <a href="index.html"><i class="fas fa-home"></i> Dashboard</a>
+        </li>
+        <li class="nav-item">
+          <a href="chat.html" class="active"><i class="fas fa-comments"></i> Chat Interface</a>
+        </li>
+      </ul>
+
+      <div style="margin-top: 2rem;">
+        <label class="form-label">Select Knowledge Base</label>
+        <select id="kb-select" style="margin-bottom: 1rem;">
+          <option value="">Loading...</option>
+        </select>
+
+        <label class="form-label" style="display: none;" id="doc-label">Select Document (Optional)</label>
+        <select id="doc-select" style="display: none;">
+          <option value="">All Documents</option>
+        </select>
+      </div>
+
+      <div style="margin-top: auto;">
+        <button id="logout-btn" class="btn btn-secondary" style="width: 100%;">
+          <i class="fas fa-sign-out-alt"></i> Logout
+        </button>
+      </div>
+    </aside>
+
+    <!-- Chat Area -->
+    <main class="chat-container">
+      <header class="chat-header">
+        <h3 id="chat-title">General Chat</h3>
+        <button id="clear-chat-btn" class="btn btn-secondary btn-icon" title="Clear Chat">
+          <i class="fas fa-trash-alt"></i>
+        </button>
+      </header>
+
+      <div id="chat-messages" class="chat-messages">
+        <!-- Initial Greeting -->
+        <div class="message ai">
+          <div class="message-avatar"><i class="fas fa-robot"></i></div>
+          <div class="message-content">
+            Hello! I am your AI assistant. Select a Knowledge Base on the left to start asking questions about your documents.
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-input-area">
+        <form id="chat-form" class="chat-input-wrapper">
+          <textarea id="chat-input" class="chat-input" placeholder="Ask a question..." required></textarea>
+          <button type="submit" id="send-btn" class="send-btn">
+            <i class="fas fa-paper-plane"></i>
+          </button>
+        </form>
+      </div>
+    </main>
+
+  </div>
+
+  <script type="module" src="js/chat.js"></script>
+</body>
+</html>

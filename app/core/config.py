@@ -3,7 +3,6 @@ from pydantic import SecretStr
 
 
 class Settings(BaseSettings):
-
     # Database settings
     DB_USER: str
     DB_PASSWORD: SecretStr
@@ -22,11 +21,10 @@ class Settings(BaseSettings):
     # Redis settings
     REDIS_URL: str
 
-    # OpenAI API Key
-    OPENAI_API_KEY: SecretStr
+    # Google AI API Key (for embeddings and chat)
+    GOOGLE_API_KEY: SecretStr
 
-    model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
 settings = Settings()  # type: ignore

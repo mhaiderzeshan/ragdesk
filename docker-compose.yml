@@ -73,5 +73,16 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.workers.celery_app worker --loglevel=info
+
+  # Frontend Web Server: Nginx serving static files
+  frontend:
+    image: nginx:alpine
+    container_name: ragdesk_frontend
+    restart: always
+    ports:
+      - "5500:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+
 volumes:
   postgres_data:

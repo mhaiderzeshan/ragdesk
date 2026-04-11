@@ -6,23 +6,12 @@ offline, and without Docker.
 """
 
 import io
-import sys
 import uuid
-from types import ModuleType
 from unittest.mock import patch, MagicMock
 
 import pytest
 
-from tests.conftest import TEST_ORG_ID, TEST_KB_ID
-
-
-# ---------------------------------------------------------------------------
-# Stub out the heavy `app.workers.tasks` module so it can be imported without
-# Redis / Celery / OpenAI / ChromaDB running.
-# ---------------------------------------------------------------------------
-_fake_tasks = ModuleType("app.workers.tasks")
-_fake_tasks.process_document = MagicMock()
-sys.modules.setdefault("app.workers.tasks", _fake_tasks)
+from tests.conftest import TEST_ORG_ID, TEST_KB_ID, _fake_tasks
 
 
 # ========================================================================
@@ -33,14 +22,9 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_upload_success(self, client, seed_kb):
-        """
-        Happy path: valid PDF, storage + Celery succeed.
-        Expects 202 with document_id, filename, status=PENDING.
-        """
         fake_doc_id = str(uuid.uuid4())
         fake_path = f"uploads/{fake_doc_id}.pdf"
 
-        # Reset the stub so `.delay` is a clean mock
         _fake_tasks.process_document.reset_mock()
 
         with patch(
@@ -50,7 +34,9 @@ class TestUploadDocument:
             file_content = b"%PDF-1.4 fake content"
             response = await client.post(
                 "/documents/upload",
-                files={"file": ("report.pdf", io.BytesIO(file_content), "application/pdf")},
+                files={
+                    "file": ("report.pdf", io.BytesIO(file_content), "application/pdf")
+                },
             )
 
         assert response.status_code == 202
@@ -62,10 +48,6 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_upload_no_knowledgebase_returns_400(self, client):
-        """
-        If the org has no KnowledgeBase row, the endpoint should return 400.
-        (We intentionally skip the seed_kb fixture here.)
-        """
         with patch(
             "app.api.endpoints.document.save_upload",
             return_value=(str(uuid.uuid4()), "uploads/x.pdf"),
@@ -80,10 +62,6 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_upload_invalid_extension_returns_400(self, client, seed_kb):
-        """
-        storage.save_upload raises HTTPException(400) for disallowed extensions.
-        The endpoint should propagate it.
-        """
         from fastapi import HTTPException
 
         with patch(
@@ -95,7 +73,13 @@ class TestUploadDocument:
         ):
             response = await client.post(
                 "/documents/upload",
-                files={"file": ("malware.exe", io.BytesIO(b"MZ"), "application/octet-stream")},
+                files={
+                    "file": (
+                        "malware.exe",
+                        io.BytesIO(b"MZ"),
+                        "application/octet-stream",
+                    )
+                },
             )
 
         assert response.status_code == 400
@@ -103,15 +87,9 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_upload_celery_failure_returns_503(self, client, seed_kb):
-        """
-        If Celery enqueue fails (Redis down), the endpoint should:
-          - still persist the document (status=FAILED)
-          - return 503 with a meaningful error
-        """
         fake_doc_id = str(uuid.uuid4())
         fake_path = f"uploads/{fake_doc_id}.pdf"
 
-        # Make the stub's .delay() raise
         _fake_tasks.process_document.delay = MagicMock(
             side_effect=ConnectionError("Redis refused")
         )
@@ -125,22 +103,20 @@ class TestUploadDocument:
                 files={"file": ("slides.pdf", io.BytesIO(b"%PDF"), "application/pdf")},
             )
 
-        # Restore clean mock for other tests
         _fake_tasks.process_document.delay = MagicMock()
 
         assert response.status_code == 503
-        assert "Service unavailable" in response.json()["detail"]
+        assert "Failed to enqueue" in response.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_upload_empty_file_returns_400(self, client, seed_kb):
-        """
-        An empty file should be rejected by storage validation (400).
-        """
         from fastapi import HTTPException
 
         with patch(
             "app.api.endpoints.document.save_upload",
-            side_effect=HTTPException(status_code=400, detail="Uploaded file is empty."),
+            side_effect=HTTPException(
+                status_code=400, detail="Uploaded file is empty."
+            ),
         ):
             response = await client.post(
                 "/documents/upload",
@@ -152,9 +128,6 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_upload_oversized_file_returns_413(self, client, seed_kb):
-        """
-        A file exceeding the size limit should be rejected (413).
-        """
         from fastapi import HTTPException
 
         with patch(
@@ -174,9 +147,6 @@ class TestUploadDocument:
 
     @pytest.mark.asyncio
     async def test_upload_missing_file_field_returns_422(self, client, seed_kb):
-        """
-        If the multipart form has no 'file' field, FastAPI returns 422.
-        """
         response = await client.post("/documents/upload")
         assert response.status_code == 422
 
@@ -189,9 +159,6 @@ class TestGetDocumentStatus:
 
     @pytest.mark.asyncio
     async def test_status_existing_document(self, client, seed_document):
-        """
-        Given a seeded document, the endpoint should return its status.
-        """
         response = await client.get(f"/documents/{seed_document}/status")
 
         assert response.status_code == 200
@@ -201,9 +168,6 @@ class TestGetDocumentStatus:
 
     @pytest.mark.asyncio
     async def test_status_nonexistent_document_returns_404(self, client, seed_kb):
-        """
-        Fetching status for a non-existent document should return 404.
-        """
         fake_id = str(uuid.uuid4())
         response = await client.get(f"/documents/{fake_id}/status")
 

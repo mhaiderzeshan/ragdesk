@@ -2,19 +2,25 @@
 pgvector-based semantic search with tenant isolation.
 Always filters by org_id AND kb_id before returning chunks.
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from app.models.chunk import Chunk
 from app.models.document import Document
 
 if TYPE_CHECKING:
     pass
+
+
+def _vector_literal(embedding: list[float]) -> str:
+    """Format a Python list as a pgvector string literal: '[0.1,0.2,...]'"""
+    return "'" + "[" + ",".join(str(v) for v in embedding) + "]" + "'"
 
 
 async def search_similar_chunks(
@@ -33,28 +39,36 @@ async def search_similar_chunks(
     Security: Both org_id and kb_id filters are applied at the DB level,
     preventing cross-tenant leakage even if application logic is bypassed.
     """
-    # Build the query using pgvector's <=> (cosine distance) operator.
-    # We join through documents to guarantee kb/org scoping.
-    stmt = (
-        select(
-            Chunk.id.label("chunk_id"),
-            Chunk.document_id,
-            Chunk.text,
-            Chunk.metadata_jsonb,
-            # cosine similarity = 1 - cosine distance
-            (1 - Chunk.embedding.op("<=>")(query_embedding)).label("score"),
-        )
-        .join(Document, Chunk.document_id == Document.id)
-        .where(
-            Document.kb_id == kb_id,
-            Document.org_id == org_id,
-            Chunk.org_id == org_id,         # denormalized, still checked
-        )
-        .order_by(text("score DESC"))
-        .limit(top_k)
-    )
+    # Use raw SQL with an inline vector literal instead of a parameter.
+    # This avoids asyncpg mis-serializing a Python list as a multi-dimensional
+    # array (which causes pgvector's "expected ndim to be 1" error).
+    vec_str = _vector_literal(query_embedding)
 
-    result = await db.execute(stmt)
+    sql = text(f"""
+        SELECT
+            chunks.id   AS chunk_id,
+            chunks.document_id,
+            chunks.text,
+            chunks.metadata_jsonb,
+            (1 - (chunks.embedding <=> {vec_str}::vector)) AS score
+        FROM chunks
+        JOIN documents ON chunks.document_id = documents.id
+        WHERE documents.kb_id   = :kb_id
+          AND documents.org_id  = :org_id
+          AND chunks.org_id     = :org_id2
+        ORDER BY score DESC
+        LIMIT :limit
+    """)
+
+    result = await db.execute(
+        sql,
+        {
+            "kb_id": str(kb_id),
+            "org_id": str(org_id),
+            "org_id2": str(org_id),
+            "limit": top_k,
+        },
+    )
     rows = result.mappings().all()
 
     return [

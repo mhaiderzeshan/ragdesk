@@ -40,7 +40,7 @@ class MessageOut(BaseModel):
 
 
 class ChatHistoryResponse(BaseModel):
-    chat_id: uuid.UUID
+    chat_id: uuid.UUID = Field(validation_alias="id")
     kb_id: uuid.UUID
     created_at: datetime
     messages: list[MessageOut]

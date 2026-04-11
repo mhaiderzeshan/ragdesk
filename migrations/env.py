@@ -46,7 +46,7 @@ def do_run_migrations(connection):
 
 async def run_migrations_online() -> None:
     password = settings.DB_PASSWORD.get_secret_value()
-    url = f"postgresql+asyncpg://{settings.DB_USER}:{password}@127.0.0.1:5433/{settings.DB_NAME}"
+    url = f"postgresql+asyncpg://{settings.DB_USER}:{password}@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
 
     from sqlalchemy.ext.asyncio import create_async_engine
     connectable = create_async_engine(url, poolclass=pool.NullPool)

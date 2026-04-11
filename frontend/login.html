@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - RAGDesk</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <link rel="stylesheet" href="css/index.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/layout.css">
+</head>
+<body>
+
+  <div class="auth-wrapper">
+    <div class="glass-panel auth-card animate-fade-in">
+      <div class="auth-header">
+        <div class="auth-logo text-gradient">RAGDesk</div>
+        <p style="color: var(--text-secondary)">Please sign in to access your knowledge bases.</p>
+      </div>
+
+      <div id="auth-alert-container"></div>
+
+      <form id="login-form">
+        <div class="form-group" id="org-name-group" style="display: none;">
+          <label class="form-label" for="org-name">Organization Name</label>
+          <input type="text" id="org-name" name="org-name" placeholder="Enter your organization name">
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="username">Username or Email</label>
+          <input type="text" id="username" name="username" placeholder="Enter your username" required>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <input type="password" id="password" name="password" placeholder="Enter your password" required>
+        </div>
+        
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
+          Sign In <i class="fas fa-arrow-right"></i>
+        </button>
+      </form>
+
+      <div class="auth-footer">
+        Don't have an account? <a href="#" id="toggle-auth-mode">Sign up</a>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/auth.js"></script>
+</body>
+</html>
