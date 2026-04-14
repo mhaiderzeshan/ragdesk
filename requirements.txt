@@ -12,6 +12,7 @@ pgvector==0.4.2
 alembic==1.18.4
 # AI & Embeddings
 google-generativeai==0.8.5
+openai==1.82.0
 PyMuPDF==1.27.2.2
 
 # Task Queue

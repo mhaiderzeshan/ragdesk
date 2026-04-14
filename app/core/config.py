@@ -21,10 +21,15 @@ class Settings(BaseSettings):
     # Redis settings
     REDIS_URL: str
 
-    # Google AI API Key (for embeddings and chat)
+    # Google AI API Key (for embeddings)
     GOOGLE_API_KEY: SecretStr
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # Groq API Key (for chat)
+    GROQ_API_KEY: SecretStr
+
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
 
 settings = Settings()  # type: ignore
