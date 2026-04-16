@@ -13,6 +13,15 @@ from app.db import Base, engine
 
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+
+# Configure OpenTelemetry tracing with Console exporter BEFORE instrumentors
+_tracer_provider = TracerProvider()
+_tracer_provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+trace.set_tracer_provider(_tracer_provider)
+
 from app.core.logging import setup_logging
 from app.core.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
 

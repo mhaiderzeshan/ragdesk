@@ -81,11 +81,11 @@ export const API = {
 
   // Knowledge Base Endpoints
   async getKnowledgeBases() {
-    return this.request('/kbs/');
+    return this.request('/kbs');
   },
 
   async createKnowledgeBase(name, description) {
-    return this.request('/kbs/', {
+    return this.request('/kbs', {
       method: 'POST',
       body: { name, description }
     });

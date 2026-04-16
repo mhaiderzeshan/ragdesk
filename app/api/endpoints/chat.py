@@ -47,6 +47,7 @@ async def chat(
             message=payload.message,
             chat_id=payload.chat_id,
             top_k=payload.top_k,
+            filters=payload.filters,
         )
         # Log this action
         await log_action(db, current_user.org_id, current_user.user_id, "chat", str(payload.kb_id))
@@ -87,6 +88,7 @@ async def chat_stream(
             message=payload.message,
             chat_id=payload.chat_id,
             top_k=payload.top_k,
+            filters=payload.filters,
         )
         return StreamingResponse(
             stream,

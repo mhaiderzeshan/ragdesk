@@ -18,8 +18,12 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import time as time_module
 import uuid
 from typing import AsyncIterator
+
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 import google.generativeai as genai
 from openai import OpenAI
@@ -31,7 +35,9 @@ from app.models.chat import Chat
 from app.models.message import Message
 from app.models.knowledgebase import KnowledgeBase
 from app.services.retrieval import search_similar_chunks
-from app.schemas.chat import ChatResponse, Citation
+from app.schemas.chat import ChatResponse, Citation, sanitize_context
+
+tracer = trace.get_tracer(__name__)
 
 # --- Gemini (embeddings only) ---
 genai.configure(api_key=settings.GOOGLE_API_KEY.get_secret_value())
@@ -59,7 +65,7 @@ IMPORTANT SECURITY RULES — follow these unconditionally:
 
 def _build_user_prompt(question: str, context_chunks: list[dict]) -> str:
     context_text = "\n\n---\n\n".join(
-        f"[Chunk {i + 1} | doc={c['document_id'][:8]}]\n{c['text']}"
+        f"[Chunk {i + 1} | doc={c['document_id'][:8]}]\n{sanitize_context(c['text'])}"
         for i, c in enumerate(context_chunks)
     )
     return f"<context>\n{context_text}\n</context>\n\nQuestion: {question}"
@@ -111,27 +117,54 @@ async def generate_answer(
     message: str,
     chat_id: uuid.UUID | None = None,
     top_k: int = 6,
+    filters=None,
 ) -> ChatResponse:
     # 1. Embed query
-    query_embedding = _embed_query(message)
+    with tracer.start_as_current_span("retrieval.embedding") as span:
+        span.set_attribute("org_id", str(org_id))
+        span.set_attribute("kb_id", str(kb_id))
+        span.set_attribute("embedding.model", EMBEDDING_MODEL)
+        span.set_attribute("query.length", len(message))
+        start = time_module.perf_counter()
+        query_embedding = _embed_query(message)
+        span.set_attribute("embedding.dimensions", len(query_embedding))
+        span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
 
-    # 2. Retrieve similar chunks (tenant-scoped)
-    chunks = await search_similar_chunks(db, kb_id, org_id, query_embedding, top_k)
+    # 2. Retrieve similar chunks (tenant-scoped, with optional metadata filters)
+    with tracer.start_as_current_span("retrieval.vector_search") as span:
+        span.set_attribute("org_id", str(org_id))
+        span.set_attribute("kb_id", str(kb_id))
+        span.set_attribute("top_k", top_k)
+        span.set_attribute("filters_applied", filters is not None)
+        start = time_module.perf_counter()
+        chunks = await search_similar_chunks(db, kb_id, org_id, query_embedding, top_k, filters)
+        span.set_attribute("chunks_retrieved", len(chunks))
+        span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
 
     # 3. Build prompt
     user_prompt = _build_user_prompt(message, chunks)
 
     # 4. Call LLM via Groq (OpenAI-compatible)
-    response = await asyncio.to_thread(
-        _groq_client.chat.completions.create,
-        model=CHAT_MODEL,
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.2,
-    )
-    answer = response.choices[0].message.content or ""
+    with tracer.start_as_current_span("llm.chat_completion") as span:
+        span.set_attribute("llm.model", CHAT_MODEL)
+        span.set_attribute("llm.provider", "groq")
+        span.set_attribute("chunk_count", len(chunks))
+        span.set_attribute("prompt.length", len(user_prompt))
+        start = time_module.perf_counter()
+        response = await asyncio.to_thread(
+            _groq_client.chat.completions.create,
+            model=CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+        )
+        span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
+        answer = response.choices[0].message.content or ""
+        span.set_attribute("answer.length", len(answer))
+        if hasattr(response.choices[0], 'finish_reason'):
+            span.set_attribute("finish_reason", str(response.choices[0].finish_reason))
 
     # 5. Persist
     chat = await _get_or_create_chat(db, chat_id, org_id, user_id, kb_id)
@@ -182,6 +215,7 @@ async def generate_answer_stream(
     message: str,
     chat_id: uuid.UUID | None = None,
     top_k: int = 6,
+    filters=None,
 ) -> AsyncIterator[str]:
     """
     Yields Server-Sent Events strings.
@@ -190,17 +224,40 @@ async def generate_answer_stream(
     Groq's streaming returns an iterator of chunks; we run it in a background
     thread and forward tokens to the async event loop via an asyncio.Queue.
     """
-    # 1. Embed + retrieve (same as non-streaming)
-    query_embedding = _embed_query(message)
-    chunks = await search_similar_chunks(db, kb_id, org_id, query_embedding, top_k)
+    # 1. Embed + retrieve with tracing
+    with tracer.start_as_current_span("retrieval.embedding") as span:
+        span.set_attribute("org_id", str(org_id))
+        span.set_attribute("kb_id", str(kb_id))
+        span.set_attribute("embedding.model", EMBEDDING_MODEL)
+        start = time_module.perf_counter()
+        query_embedding = _embed_query(message)
+        span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
+
+    with tracer.start_as_current_span("retrieval.vector_search") as span:
+        span.set_attribute("org_id", str(org_id))
+        span.set_attribute("kb_id", str(kb_id))
+        span.set_attribute("top_k", top_k)
+        span.set_attribute("filters_applied", filters is not None)
+        start = time_module.perf_counter()
+        chunks = await search_similar_chunks(db, kb_id, org_id, query_embedding, top_k, filters)
+        span.set_attribute("chunks_retrieved", len(chunks))
+        span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
+
     user_prompt = _build_user_prompt(message, chunks)
 
     # 2. Stream LLM response via background thread → asyncio.Queue bridge
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
+    # Span for LLM streaming call — created here so the thread can use it
+    llm_span = tracer.start_span("llm.chat_completion.stream")
+    llm_span.set_attribute("llm.model", CHAT_MODEL)
+    llm_span.set_attribute("llm.provider", "groq")
+    llm_span.set_attribute("chunk_count", len(chunks))
+
     def _producer():
         try:
+            start = time_module.perf_counter()
             stream = _groq_client.chat.completions.create(
                 model=CHAT_MODEL,
                 messages=[
@@ -210,13 +267,20 @@ async def generate_answer_stream(
                 temperature=0.2,
                 stream=True,
             )
+            token_count = 0
             for chunk in stream:
                 delta = chunk.choices[0].delta.content or ""
                 if delta:
+                    token_count += 1
                     loop.call_soon_threadsafe(queue.put_nowait, delta)
+            llm_span.set_attribute("tokens_sent", token_count)
+            llm_span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
         except Exception as e:
+            llm_span.set_status(Status(StatusCode.ERROR, str(e)))
+            llm_span.record_exception(e)
             loop.call_soon_threadsafe(queue.put_nowait, f"__STREAM_ERROR__{e}")
         finally:
+            llm_span.end()
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
     thread = threading.Thread(target=_producer, daemon=True)

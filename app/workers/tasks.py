@@ -4,11 +4,13 @@ Pipeline: extract text → chunk → embed → store Chunk rows in Postgres/pgve
 """
 
 import os
+import re
 import uuid
 import asyncio
 import time
 from contextlib import asynccontextmanager
-from typing import List
+from dataclasses import dataclass
+from typing import List, Optional
 
 from celery.exceptions import SoftTimeLimitExceeded
 from app.workers.celery_app import celery_app
@@ -23,6 +25,10 @@ from app.services.document import update_document_status
 genai.configure(api_key=settings.GOOGLE_API_KEY.get_secret_value())
 
 EMBEDDING_MODEL = "models/gemini-embedding-001"
+
+# Chunk size and overlap for sentence-aware splitting
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
 
 
 def _build_database_url() -> str:
@@ -60,24 +66,195 @@ async def _worker_session():
         await engine.dispose()
 
 
-# Text chunking
-def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
-    """Simple length-based chunking with overlap."""
-    if not text.strip():
+# ---------------------------------------------------------------------------
+# Text Extraction and Structure-Aware Chunking
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ChunkWithMetadata:
+    text: str
+    page_number: int
+    section_title: Optional[str]
+
+
+def _split_into_sentences(text: str) -> List[str]:
+    """
+    Split text at sentence boundaries using a simple regex heuristic.
+    Avoids splitting on common abbreviations (Dr., Mr., etc.).
+    No external dependencies — uses regex only.
+    """
+    # Pattern: split on sentence-ending punctuation followed by whitespace.
+    # Negative lookahead avoids splitting when punctuation is followed by
+    # lowercase (e.g., "Dr. Smith" or "e.g. example").
+    sentence_enders = re.compile(
+        r'(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])$',
+        re.MULTILINE
+    )
+    parts = sentence_enders.split(text.strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _merge_sentences_to_chunks(
+    sentences: List[str],
+    chunk_size: int = CHUNK_SIZE,
+    overlap: int = CHUNK_OVERLAP,
+) -> List[str]:
+    """
+    Merge sentences into chunks that respect chunk_size limit.
+    When a sentence exceeds chunk_size, split it at word boundaries.
+    Overlap carries forward meaningful context between chunks.
+    """
+    if not sentences:
         return []
 
     chunks: List[str] = []
-    start = 0
-    text_len = len(text)
+    current: List[str] = []
+    current_len = 0
 
-    while start < text_len:
-        end = min(start + chunk_size, text_len)
-        chunks.append(text[start:end])
-        if end == text_len:
-            break
-        start += chunk_size - overlap
+    for sentence in sentences:
+        sent_len = len(sentence)
+
+        # If single sentence exceeds chunk_size, split by words
+        if sent_len > chunk_size:
+            if current:
+                chunks.append(" ".join(current))
+                # Build overlap from end of current chunk
+                overlap_text = " ".join(current)
+                current = [overlap_text]
+                current_len = len(overlap_text)
+            words = sentence.split()
+            sub_chunk: List[str] = []
+            sub_len = 0
+            for word in words:
+                if sub_len + len(word) + 1 > chunk_size and sub_chunk:
+                    chunks.append(" ".join(sub_chunk))
+                    overlap_text = " ".join(sub_chunk)
+                    sub_chunk = [overlap_text]
+                    sub_len = len(overlap_text)
+                sub_chunk.append(word)
+                sub_len += len(word) + 1
+            if sub_chunk:
+                current = sub_chunk
+                current_len = sub_len
+        elif current_len + sent_len + len(current) > chunk_size:
+            # Current chunk is full — emit and start new with overlap
+            chunks.append(" ".join(current))
+            overlap_text = " ".join(current[-2:])  # carry last 2 sentences
+            current = [overlap_text, sentence]
+            current_len = sum(len(s) for s in current)
+        else:
+            current.append(sentence)
+            current_len += sent_len + (1 if len(current) > 1 else 0)
+
+    if current:
+        chunks.append(" ".join(current))
 
     return chunks
+
+
+def _extract_page_heading(page: pymupdf.Page, toc: list, page_num: int) -> Optional[str]:
+    """
+    Try to find the nearest TOC/section heading for this page number.
+    PyMuPDF TOC entries are [level, title, page_num (1-indexed)].
+    Returns the title of the closest preceding heading.
+    """
+    if not toc:
+        return None
+    # TOC entries: [level, title, page]
+    closest = None
+    for entry in toc:
+        if len(entry) >= 3 and entry[2] <= page_num:
+            closest = entry[1]
+        elif entry[2] > page_num:
+            break
+    return closest
+
+
+def chunk_pdf_by_paragraphs(
+    file_path: str,
+    chunk_size: int = CHUNK_SIZE,
+    overlap: int = CHUNK_OVERLAP,
+) -> List[ChunkWithMetadata]:
+    """
+    Hybrid page-aware paragraph chunking using PyMuPDF blocks.
+
+    Algorithm:
+    1. Open PDF and build TOC (table of contents) for section headings.
+    2. For each page, get text blocks with bounding boxes.
+    3. Group blocks by vertical proximity to form paragraphs.
+    4. Merge paragraph text, split at sentence boundaries, respect chunk_size.
+    5. Track page_number and section_title (from TOC) per chunk.
+    """
+    doc = pymupdf.open(file_path)
+    toc = doc.get_toc()  # [(level, title, page), ...]
+
+    all_chunks: List[ChunkWithMetadata] = []
+
+    for page_num, page in enumerate(doc, start=1):
+        section_title = _extract_page_heading(page, toc, page_num)
+
+        # Get text blocks with bounding boxes: (x0, y0, x1, y1, text, block_no, ...)
+        blocks = page.get_text("blocks")
+        if not blocks:
+            continue
+
+        # Sort blocks by vertical position (y0 top-to-bottom)
+        blocks.sort(key=lambda b: (b[1], b[0]))  # sort by y0, then x0
+
+        # Group blocks into paragraphs by vertical proximity (~12pt gap)
+        # We track paragraphs as (paragraph_text, block_count)
+        paragraphs: List[str] = []
+        current_para: List[str] = []
+        current_y0: Optional[float] = None
+        PAGE_HEIGHT = page.rect.height
+
+        for block in blocks:
+            x0, y0, x1, y1, text = block[0], block[1], block[2], block[3], block[4]
+            text = text.strip()
+            if not text or len(text) < 3:
+                continue
+
+            # Skip very short blocks (likely page numbers, footers, headers)
+            if len(text) < 20 and y0 < PAGE_HEIGHT * 0.1:
+                continue
+            if len(text) < 20 and y0 > PAGE_HEIGHT * 0.9:
+                continue
+
+            if current_y0 is None:
+                current_y0 = y0
+                current_para.append(text)
+            elif abs(y0 - current_y0) < 12:  # same paragraph (within 12pt)
+                # Check if block is roughly in same column (x0 proximity)
+                if current_para:
+                    current_para.append(text)
+                    current_y0 = (current_y0 + y0) / 2
+            else:
+                # New paragraph
+                if current_para:
+                    paragraphs.append(" ".join(current_para))
+                current_para = [text]
+                current_y0 = y0
+
+        if current_para:
+            paragraphs.append(" ".join(current_para))
+
+        # Process each paragraph into sentence-aware chunks
+        for para in paragraphs:
+            if len(para) < 30:  # skip very short paragraphs
+                continue
+            sentences = _split_into_sentences(para)
+            if not sentences:
+                continue
+            text_chunks = _merge_sentences_to_chunks(sentences, chunk_size, overlap)
+            for chunk_text in text_chunks:
+                all_chunks.append(ChunkWithMetadata(
+                    text=chunk_text,
+                    page_number=page_num,
+                    section_title=section_title,
+                ))
+
+    doc.close()
+    return all_chunks
 
 
 # Core async pipeline
@@ -109,23 +286,23 @@ async def _process_document_async(
                     "Extracted text is empty. The document may be image-only or corrupt."
                 )
 
-            # 3. Chunk text
-            chunks = chunk_text(full_text)
-            print(f"[{document_id}] Extracted {len(chunks)} chunks.")
+            # 3. Chunk text using structure-aware paragraph chunking
+            pdf_chunks = chunk_pdf_by_paragraphs(file_path, CHUNK_SIZE, CHUNK_OVERLAP)
+            print(f"[{document_id}] Extracted {len(pdf_chunks)} chunks.")
 
-            if chunks:
+            if pdf_chunks:
                 # 4. Generate embeddings (one per chunk)
                 #    Add a small delay between calls to avoid 429 rate-limit
                 #    errors on the free-tier Google AI API.
                 embeddings: List[List[float]] = []
-                for i, chunk_text_item in enumerate(chunks):
+                for i, chunk_item in enumerate(pdf_chunks):
                     # Retry with exponential backoff on 429 / transient errors
                     max_retries = 5
                     for attempt in range(max_retries):
                         try:
                             response = genai.embed_content(
                                 model=EMBEDDING_MODEL,
-                                content=chunk_text_item,
+                                content=chunk_item.text,
                                 task_type="retrieval_document",
                                 output_dimensionality=768,
                             )
@@ -141,7 +318,7 @@ async def _process_document_async(
                             else:
                                 raise
                     # Throttle: pause between embedding calls to stay within quota
-                    if i < len(chunks) - 1:
+                    if i < len(pdf_chunks) - 1:
                         time.sleep(1.0)
 
                 # 5. Persist Chunk rows in Postgres (pgvector stores the vectors)
@@ -153,15 +330,19 @@ async def _process_document_async(
                     sql_delete(ChunkModel).where(ChunkModel.document_id == document_id)
                 )
 
-                for idx, (text_chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                for idx, (chunk_item, embedding) in enumerate(zip(pdf_chunks, embeddings)):
                     chunk = ChunkModel(
                         id=uuid.uuid4(),
                         org_id=org_id,
                         document_id=document_id,
                         chunk_index=idx,
-                        text=text_chunk,
+                        text=chunk_item.text,
                         embedding=embedding,
-                        metadata_jsonb={"chunk_index": idx},
+                        metadata_jsonb={
+                            "chunk_index": idx,
+                            "page_number": chunk_item.page_number,
+                            "section_title": chunk_item.section_title,
+                        },
                     )
                     db.add(chunk)
 
@@ -171,7 +352,7 @@ async def _process_document_async(
             await update_document_status(db, document_id, "completed")
             await db.commit()
             print(
-                f"[{document_id}] Successfully processed — {len(chunks)} chunks stored."
+                f"[{document_id}] Successfully processed — {len(pdf_chunks)} chunks stored."
             )
 
         except Exception as exc:
