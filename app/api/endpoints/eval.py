@@ -1,8 +1,5 @@
-from typing import List
-import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
 
 from app.db import get_db
 from app.api.deps import get_current_user
@@ -12,32 +9,9 @@ from app.services.retrieval import search_similar_chunks
 from app.services.chat import _embed_query
 from app.core.rate_limit import limiter
 from app.services.audit import log_action
+from app.schemas.eval import EvalItem, EvalRunRequest, EvalResultItem, EvalRunResponse
 
 router = APIRouter(tags=["Evaluation"])
-
-
-class EvalItem(BaseModel):
-    question: str
-    expected_document_ids: List[str]
-
-
-class EvalRunRequest(BaseModel):
-    kb_id: uuid.UUID
-    dataset: List[EvalItem]
-    top_k: int = 6
-
-
-class EvalResultItem(BaseModel):
-    question: str
-    hit: bool
-    rr: float  # Reciprocal Rank
-
-
-class EvalRunResponse(BaseModel):
-    total_questions: int
-    hit_rate: float
-    mrr: float
-    results: List[EvalResultItem]
 
 
 @router.post(
