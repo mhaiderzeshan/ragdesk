@@ -112,15 +112,15 @@ async def search_similar_chunks(
         print(f"[RETRIEVAL DIAG] top score={float(rows[0]['score']):.4f} doc_id={rows[0]['document_id']}")
     else:
         # Run a diagnostic query WITHOUT filters to see if ANY chunks exist
-        diag_sql = text("SELECT count(*), min(org_id::text), min(document_id::text) FROM chunks")
+        diag_sql = text("SELECT count(*) AS cnt, min(org_id::text) AS min_org, min(document_id::text) AS min_doc FROM chunks")
         diag_result = await db.execute(diag_sql)
         diag_row = diag_result.mappings().first()
-        print(f"[RETRIEVAL DIAG] NO RESULTS — total chunks in DB={diag_row['count']} sample_org_id={diag_row['min']} sample_doc_id={diag_row['min_1']}")
+        print(f"[RETRIEVAL DIAG] NO RESULTS — total chunks in DB={diag_row['cnt']} sample_org_id={diag_row['min_org']} sample_doc_id={diag_row['min_doc']}")
 
-        diag_sql2 = text("SELECT count(*) FROM documents WHERE kb_id = :kb_id AND org_id = :org_id")
+        diag_sql2 = text("SELECT count(*) AS cnt FROM documents WHERE kb_id = :kb_id AND org_id = :org_id")
         diag_result2 = await db.execute(diag_sql2, {"kb_id": params["kb_id"], "org_id": params["org_id"]})
         diag_row2 = diag_result2.mappings().first()
-        print(f"[RETRIEVAL DIAG] documents matching kb_id+org_id={diag_row2['count']}")
+        print(f"[RETRIEVAL DIAG] documents matching kb_id+org_id={diag_row2['cnt']}")
 
     return [
         {
