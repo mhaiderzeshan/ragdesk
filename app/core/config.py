@@ -1,34 +1,60 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
+from typing import Optional
 
 
 class Settings(BaseSettings):
-    # Database settings
-    DB_USER: str
-    DB_PASSWORD: SecretStr
-    DB_HOST: str
-    DB_PORT: int
-    DB_NAME: str
+    
+    DATABASE_URL: Optional[str] = None  
 
-    # JWT settings
+    DB_USER: Optional[str] = None       # Local docker-compose
+    DB_PASSWORD: Optional[SecretStr] = None
+    DB_HOST: Optional[str] = "localhost"
+    DB_PORT: int = 5432
+    DB_NAME: Optional[str] = None
+
+    @model_validator(mode="after")
+    def assemble_db_url(self) -> "Settings":
+        if self.DATABASE_URL:
+            
+            if self.DATABASE_URL.startswith("postgresql://"):
+                self.DATABASE_URL = self.DATABASE_URL.replace(
+                    "postgresql://", "postgresql+asyncpg://", 1
+                )
+            return self
+
+        # Fall back to building URL from individual parts
+        if not all([self.DB_USER, self.DB_PASSWORD, self.DB_NAME]):
+            raise ValueError(
+                "Either DATABASE_URL or DB_USER + DB_PASSWORD + DB_NAME must be set"
+            )
+        password = self.DB_PASSWORD.get_secret_value()
+        self.DATABASE_URL = (
+            f"postgresql+asyncpg://{self.DB_USER}:{password}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        )
+        return self
+
+    # --- Auth ---
     SECRET_KEY: SecretStr
     ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    # --- File uploads ---
     UPLOAD_DIR: str = "uploads"
     MAX_FILE_SIZE_MB: int = 10
 
-    # Redis settings
+    # --- Redis ---
     REDIS_URL: str
 
-    # Google AI API Key (for embeddings)
+    # --- AI Keys ---
     GOOGLE_API_KEY: SecretStr
-
-    # Groq API Key (for chat)
     GROQ_API_KEY: SecretStr
 
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
     )
 
 
