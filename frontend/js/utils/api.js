@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = typeof CONFIG !== 'undefined' ? CONFIG.API_URL : 'http://localhost:8000';
 
 export const API = {
   getToken() {
