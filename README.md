@@ -52,7 +52,6 @@ RAGDesk is a **production-grade, multi-tenant Retrieval-Augmented Generation bac
 
 The result is a clean, well-documented REST API that any developer can deploy in minutes and build a full-featured AI product on top of — without being an ML engineer.
 
-> 📸 **[SCREENSHOT SUGGESTION]:** Place a hero image or a short animated GIF here showing the Swagger UI (`/docs`) with a successful chat request and its cited response. This is the single most powerful thing you can add — it shows the API is real and working in under 5 seconds of a visitor's attention.
 
 ---
 
@@ -67,8 +66,6 @@ The result is a clean, well-documented REST API that any developer can deploy in
 - 💬 **Streaming Chat with Citations** — The chat API supports both standard JSON responses and **Server-Sent Events (SSE) streaming**, delivering tokens in real-time while appending source citations in the final event.
 
 - 🔐 **Secure & Observable** — JWT authentication (Argon2 password hashing), RBAC middleware, rate limiting (20 req/min per endpoint), and full **OpenTelemetry** tracing across the API and database layers.
-
-> 📸 **[SCREENSHOT SUGGESTION]:** A side-by-side terminal screenshot showing a `curl` request to `/chat/stream` with tokens streaming in real-time on the left, and the final citation JSON object on the right. This immediately communicates the streaming capability to developers.
 
 ---
 
@@ -199,10 +196,10 @@ docker-compose exec api alembic upgrade head
 
 | Service | URL |
 |---|---|
-| REST API | [http://localhost:8000](http://localhost:8000) |
-| Swagger UI | [http://localhost:8000/docs](http://localhost:8000/docs) |
-| ReDoc | [http://localhost:8000/redoc](http://localhost:8000/redoc) |
-| Frontend | [http://localhost:5500](http://localhost:5500) |
+| REST API | https://api-service-production-46be.up.railway.app |
+| Swagger UI | https://api-service-production-46be.up.railway.app/docs|
+| ReDoc | https://api-service-production-46be.up.railway.app/redoc|
+| Frontend | https://ragdesk-production.up.railway.app/|
 
 ---
 
@@ -248,7 +245,6 @@ REDIS_URL=redis://redis:6379/0
 | `POST` | `/feedback` | Submit response feedback | ✅ |
 | `GET` | `/eval` | Retrieve evaluation metrics | ✅ |
 
-> 📸 **[SCREENSHOT SUGGESTION]:** A screenshot of the Swagger UI (`/docs`) with the `/chat` endpoint expanded, showing the request body and a real example response with citations populated. This is the highest-impact single image you can include.
 
 Full interactive documentation is available at `/docs` once the server is running.
 
