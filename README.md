@@ -14,6 +14,7 @@
 [![License](https://img.shields.io/github/license/mhaiderzeshan/ragdesk?style=for-the-badge)](./LICENSE)
 [![Last Commit](https://img.shields.io/github/last-commit/mhaiderzeshan/ragdesk?style=for-the-badge)](https://github.com/mhaiderzeshan/ragdesk/commits/main)
 [![Repo Size](https://img.shields.io/github/repo-size/mhaiderzeshan/ragdesk?style=for-the-badge)](https://github.com/mhaiderzeshan/ragdesk)
+[![Live API Docs](https://img.shields.io/badge/Live_API_Docs-8A2BE2?style=for-the-badge&logo=swagger&logoColor=white)](https://api-service-production-46be.up.railway.app/docs)
 
 </div>
 
@@ -142,7 +143,9 @@ curl http://localhost:8000/health
 # → {"status": "ok"}
 ```
 
-The interactive API docs are live at **[http://localhost:8000/docs](http://localhost:8000/docs)**.
+The interactive API docs are live locally at **[http://localhost:8000/docs](http://localhost:8000/docs)**.
+
+> 🌟 **Want to skip the local setup?** Explore the **[Live API Documentation](https://api-service-production-46be.up.railway.app/docs)** right now.
 
 ---
 
@@ -196,10 +199,10 @@ docker-compose exec api alembic upgrade head
 
 | Service | URL |
 |---|---|
-| REST API | https://api-service-production-46be.up.railway.app |
-| Swagger UI | https://api-service-production-46be.up.railway.app/docs|
-| ReDoc | https://api-service-production-46be.up.railway.app/redoc|
-| Frontend | https://ragdesk-production.up.railway.app/|
+| REST API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
+| ReDoc | http://localhost:8000/redoc |
+| Frontend | http://localhost:5500 |
 
 ---
 
@@ -246,7 +249,7 @@ REDIS_URL=redis://redis:6379/0
 | `GET` | `/eval` | Retrieve evaluation metrics | ✅ |
 
 
-Full interactive documentation is available at `/docs` once the server is running.
+Full interactive documentation is available locally at `/docs` once the server is running, or you can explore the **[Live Production API Docs](https://api-service-production-46be.up.railway.app/docs)** directly.
 
 ---
 
