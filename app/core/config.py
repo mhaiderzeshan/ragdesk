@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: SecretStr
     GROQ_API_KEY: SecretStr
 
+    CORS_ORIGINS: list[str] = []
+
+    OTEL_EXPORTER: str = "console"
+    OTEL_ENDPOINT: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
