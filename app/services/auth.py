@@ -2,6 +2,9 @@ from app.schemas import RegistrationRequest, OrganizationCreate, UserCreate
 from app.repositories.auth import AuthRepository
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.models import User
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -9,8 +12,13 @@ class AuthService:
         self.repo = repo
 
     async def register_new_org(self, payload: RegistrationRequest):
+        payload.email = payload.email.strip().lower()
+        logger.debug("Registering new org/user for email: %s", payload.email)
+
         # Hash the password here (Service handles business logic)
-        hashed_password = get_password_hash(payload.password)
+        logger.debug("Hashing password for %s...", payload.email)
+        hashed_password = await get_password_hash(payload.password)
+        logger.debug("Finished hashing password for %s.", payload.email)
 
         # Prepare the schemas for the Repository
         org_data = OrganizationCreate(name=payload.org_name)
@@ -23,11 +31,20 @@ class AuthService:
         )
 
     async def authenticate_user(self, email: str, password: str):
+        email = email.strip().lower()
+        logger.debug("Authenticating user: %s", email)
         user = await self.repo.get_user_by_email(email)
         if not user:
+            logger.debug("User %s not found in database.", email)
             return None
-        if not verify_password(password, user.hashed_password):
+        
+        logger.debug("Verifying password for %s...", email)
+        is_valid = await verify_password(password, user.hashed_password)
+        if not is_valid:
+            logger.debug("Invalid password for user %s.", email)
             return None
+            
+        logger.debug("User %s successfully authenticated.", email)
         return user
 
     def create_user_token(self, user: User) -> str:

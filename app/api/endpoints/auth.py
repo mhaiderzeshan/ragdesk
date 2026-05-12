@@ -10,6 +10,9 @@ from app.services.auth import AuthService
 from app.schemas import Token
 from app.api.deps import get_current_user
 from app.schemas.auth import UserContext
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -24,16 +27,21 @@ async def register(
 
     # Call the service
     try:
+        logger.debug("Calling register_new_org for email: %s", payload.email)
         user = await auth_service.register_new_org(payload)
+        logger.debug("Successfully registered user %s.", user.email)
         return user
     except IntegrityError as e:
         error_str = str(e.orig).lower()
-        print("INTEGRITY ERROR:", repr(e.orig))
-        if "users_email_key" in error_str or "uq_users_email" in error_str:
+        logger.debug("INTEGRITY ERROR: %s", repr(e.orig))
+        if "users_email_key" in error_str or "uq_users_email" in error_str or "ix_users_email" in error_str:
+            logger.debug("Registration failed: Email %s already exists.", payload.email)
             raise HTTPException(400, detail="Email already exists")
-        elif "orgs_name_key" in error_str or "uq_orgs_name" in error_str:
+        elif "orgs_name_key" in error_str or "uq_orgs_name" in error_str or "ix_orgs_name" in error_str:
+            logger.debug("Registration failed: Organization %s already exists.", payload.org_name)
             raise HTTPException(400, detail="Organization name already exists")
         else:
+            logger.debug("Registration failed: Resource already exists (IntegrityError).")
             raise HTTPException(400, detail=f"Resource already exists")
 
 
@@ -44,9 +52,11 @@ async def login(
 ):
     auth_service = AuthService(AuthRepository(db))
 
+    logger.debug("Calling authenticate_user for: %s", form_data.username)
     user = await auth_service.authenticate_user(form_data.username, form_data.password)
 
     if not user:
+        logger.debug("Login failed: Incorrect email or password for %s.", form_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -54,6 +64,7 @@ async def login(
         )
 
     access_token = auth_service.create_user_token(user)
+    logger.debug("Login successful for user %s. Returning token.", user.email)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
