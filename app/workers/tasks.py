@@ -30,14 +30,11 @@ EMBEDDING_MODEL = "models/gemini-embedding-001"
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
-
 def _build_database_url() -> str:
-    """Build the async database URL from settings (avoids importing the shared engine)."""
-    return (
-        f"postgresql+asyncpg://"
-        f"{settings.DB_USER}:{settings.DB_PASSWORD.get_secret_value()}"
-        f"@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
-    )
+    url = settings.DATABASE_URL
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
 
 
 @asynccontextmanager
