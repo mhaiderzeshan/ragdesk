@@ -25,8 +25,9 @@ class Document(Base, UUIDIDMixin, TimestampMixin):
 
     source_type: Mapped[str] = mapped_column(String(50))  # e.g., 'file', 'url'
     status: Mapped[DocumentStatus] = mapped_column(
-        SQLEnum(DocumentStatus), default=DocumentStatus.PENDING
-    )
+        SQLEnum(DocumentStatus, values_callable=lambda x: [e.value for e in x]),
+        default=DocumentStatus.PENDING
+)
 
     filename: Mapped[str] = mapped_column(String(255), nullable=True)
     file_path: Mapped[str] = mapped_column(String(1024), nullable=True)
