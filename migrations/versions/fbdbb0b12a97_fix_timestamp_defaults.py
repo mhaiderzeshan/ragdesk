@@ -33,6 +33,10 @@ def upgrade() -> None:
     for table in tables:
         op.alter_column(table, 'created_at', server_default=sa.func.now())
 
+    op.execute("ALTER TYPE documentstatus ADD VALUE IF NOT EXISTS 'pending'")
+    op.execute("ALTER TYPE documentstatus ADD VALUE IF NOT EXISTS 'processing'")
+    op.execute("ALTER TYPE documentstatus ADD VALUE IF NOT EXISTS 'completed'")
+    op.execute("ALTER TYPE documentstatus ADD VALUE IF NOT EXISTS 'failed'")
 
 def downgrade() -> None:
     tables = [
