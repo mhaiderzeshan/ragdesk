@@ -257,7 +257,7 @@ def chunk_pdf_by_paragraphs(
 # Core async pipeline
 async def _process_document_async(
     document_id: str,
-    file_path: str,
+    file_key: str,
     kb_id: str,
     org_id: str,
 ) -> None:
@@ -270,22 +270,47 @@ async def _process_document_async(
             await update_document_status(db, document_id, "processing")
             await db.commit()
 
-            # 2. Extract text from file
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"File not found: {file_path}")
+            # 2. Extract text from file (Download from R2 first)
+            import boto3
+            import tempfile
+            from botocore.exceptions import ClientError
+            
+            s3_client = boto3.client(
+                "s3",
+                endpoint_url=settings.R2_ENDPOINT_URL,
+                aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY.get_secret_value(),
+                region_name="auto"
+            )
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                temp_file_path = tmp_file.name
+                
+            try:
+                try:
+                    s3_client.download_file(
+                        settings.R2_BUCKET_NAME,
+                        file_key,
+                        temp_file_path
+                    )
+                except ClientError as e:
+                    raise FileNotFoundError(f"File not found in R2: {file_key}. Error: {str(e)}")
 
-            doc_file = pymupdf.open(file_path)
-            full_text = "".join(page.get_text() for page in doc_file)
-            doc_file.close()
+                doc_file = pymupdf.open(temp_file_path)
+                full_text = "".join(page.get_text() for page in doc_file)
+                doc_file.close()
 
-            if not full_text.strip():
-                raise ValueError(
-                    "Extracted text is empty. The document may be image-only or corrupt."
-                )
+                if not full_text.strip():
+                    raise ValueError(
+                        "Extracted text is empty. The document may be image-only or corrupt."
+                    )
 
-            # 3. Chunk text using structure-aware paragraph chunking
-            pdf_chunks = chunk_pdf_by_paragraphs(file_path, CHUNK_SIZE, CHUNK_OVERLAP)
-            print(f"[{document_id}] Extracted {len(pdf_chunks)} chunks.")
+                # 3. Chunk text using structure-aware paragraph chunking
+                pdf_chunks = chunk_pdf_by_paragraphs(temp_file_path, CHUNK_SIZE, CHUNK_OVERLAP)
+                print(f"[{document_id}] Extracted {len(pdf_chunks)} chunks.")
+            finally:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
 
             if pdf_chunks:
                 # 4. Generate embeddings (one per chunk)
@@ -369,7 +394,7 @@ async def _process_document_async(
 
 
 @celery_app.task(bind=True, max_retries=3, soft_time_limit=300)
-def process_document(self, document_id: str, file_path: str, kb_id: str, org_id: str):
+def process_document(self, document_id: str, file_key: str, kb_id: str, org_id: str):
     """
     Celery task — runs the async ingestion pipeline synchronously.
     org_id is now required to scope chunk insertion to the correct tenant.
@@ -380,7 +405,7 @@ def process_document(self, document_id: str, file_path: str, kb_id: str, org_id:
         asyncio.set_event_loop(loop)
         try:
             loop.run_until_complete(
-                _process_document_async(document_id, file_path, kb_id, org_id)
+                _process_document_async(document_id, file_key, kb_id, org_id)
             )
         finally:
             loop.close()

@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     MAX_FILE_SIZE_MB: int = 10
 
+    # --- Cloudflare R2 ---
+    R2_ACCOUNT_ID: str
+    R2_ACCESS_KEY_ID: str
+    R2_SECRET_ACCESS_KEY: SecretStr
+    R2_BUCKET_NAME: str = "ragdesk-docs"
+
+    @property
+    def R2_ENDPOINT_URL(self) -> str:
+        return f"https://{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
     # --- Redis ---
     REDIS_URL: str
 

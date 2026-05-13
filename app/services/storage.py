@@ -1,12 +1,12 @@
 import os
 import uuid
-import shutil
-
+import boto3
+from botocore.exceptions import ClientError
 from fastapi import UploadFile, HTTPException
 
 from app.core.config import settings
 
-ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx"}
+ALLOWED_EXTENSIONS = {".pdf"}
 
 
 def _get_extension(filename: str) -> str:
@@ -35,41 +35,24 @@ def _validate_file(file: UploadFile) -> str:
 
 def save_upload(file: UploadFile) -> tuple[str, str]:
     """
-    Save the uploaded file to the UPLOAD_DIR.
+    Save the uploaded file to Cloudflare R2 storage.
 
     Returns:
-        (document_id, file_path) — the generated ID and where the file lives on disk.
-
-    Why generate document_id here?
-        The ID is tied to the file's location on disk (we use it in the filename).
-        Generating it in the service keeps this logic in one place.
+        (document_id, file_key) — the generated ID and the R2 object key.
     """
     ext = _validate_file(file)
 
-    # Generate a unique ID for this document
-    document_id = str(uuid.uuid4())
-
-    # Ensure uploads directory exists (creates it if missing)
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-
-    # Final path: uploads/<uuid>.pdf
-    file_path = os.path.join(settings.UPLOAD_DIR, f"{document_id}{ext}")
-
-    # Stream file to disk — avoids loading the entire file into memory
-    # This is safe for large files (shutil.copyfileobj reads in chunks)
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # Verify the file actually has content
-    file_size_bytes = os.path.getsize(file_path)
+    # Check file size before uploading
+    file.file.seek(0, 2)
+    file_size_bytes = file.file.tell()
+    file.file.seek(0)
+    
     max_bytes = settings.MAX_FILE_SIZE_MB * 1024 * 1024
 
     if file_size_bytes == 0:
-        os.remove(file_path)  # clean up the empty file
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
     if file_size_bytes > max_bytes:
-        os.remove(file_path)  # clean up the oversized file
         raise HTTPException(
             status_code=413,
             detail=(
@@ -78,4 +61,26 @@ def save_upload(file: UploadFile) -> tuple[str, str]:
             ),
         )
 
-    return document_id, file_path
+    # Generate a unique ID for this document
+    document_id = str(uuid.uuid4())
+    file_key = f"{document_id}{ext}"
+
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=settings.R2_ENDPOINT_URL,
+        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY.get_secret_value(),
+        region_name="auto"
+    )
+
+    try:
+        s3_client.upload_fileobj(
+            file.file, 
+            settings.R2_BUCKET_NAME, 
+            file_key,
+            ExtraArgs={'ContentType': file.content_type or 'application/pdf'}
+        )
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload to cloud storage: {str(e)}")
+
+    return document_id, file_key
