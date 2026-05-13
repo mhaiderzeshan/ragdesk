@@ -19,13 +19,11 @@ class AuthRepository:
         hashed_password: str
     ) -> User:
         # Clean unpacking
-        logger.debug("AuthRepository: Adding new org %s to session.", org_in.name)
         new_org = Organization(**org_in.model_dump())
         self.session.add(new_org)
         await self.session.flush()
 
         from app.models.knowledgebase import KnowledgeBase
-        logger.debug("AuthRepository: Adding default knowledge base for org %s.", org_in.name)
         new_kb = KnowledgeBase(name="Default", org_id=new_org.id)
         self.session.add(new_kb)
         await self.session.flush()
@@ -39,15 +37,12 @@ class AuthRepository:
             # The first user in a newly created org is always an admin
             role="admin",
         )
-        logger.debug("AuthRepository: Adding new user %s to session.", user_data['email'])
         self.session.add(new_user)
         # Final flush to ensure IDs are populated for the return
         await self.session.flush()
-        logger.debug("AuthRepository: Successfully flushed new org and user to DB.")
         return new_user
 
     async def get_user_by_email(self, email: str) -> User | None:
-        logger.debug("AuthRepository: Querying user by email: %s", email)
         result = await self.session.execute(
             select(User).where(User.email == email)
         )

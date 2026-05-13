@@ -13,12 +13,9 @@ class AuthService:
 
     async def register_new_org(self, payload: RegistrationRequest):
         payload.email = payload.email.strip().lower()
-        logger.debug("Registering new org/user for email: %s", payload.email)
 
         # Hash the password here (Service handles business logic)
-        logger.debug("Hashing password for %s...", payload.email)
         hashed_password = await get_password_hash(payload.password)
-        logger.debug("Finished hashing password for %s.", payload.email)
 
         # Prepare the schemas for the Repository
         org_data = OrganizationCreate(name=payload.org_name)
@@ -32,19 +29,14 @@ class AuthService:
 
     async def authenticate_user(self, email: str, password: str):
         email = email.strip().lower()
-        logger.debug("Authenticating user: %s", email)
         user = await self.repo.get_user_by_email(email)
         if not user:
-            logger.debug("User %s not found in database.", email)
             return None
         
-        logger.debug("Verifying password for %s...", email)
         is_valid = await verify_password(password, user.hashed_password)
         if not is_valid:
-            logger.debug("Invalid password for user %s.", email)
             return None
             
-        logger.debug("User %s successfully authenticated.", email)
         return user
 
     def create_user_token(self, user: User) -> str:
