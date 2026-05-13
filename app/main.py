@@ -34,6 +34,10 @@ def _configure_tracing() -> None:
     Exporter type is driven by env var so dev vs prod differ
     without any code changes.
     """
+    if settings.OTEL_EXPORTER == "none":
+        logger.info("OTel tracing disabled.")
+        return
+
     if settings.OTEL_EXPORTER == "otlp":
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
         exporter = OTLPSpanExporter(endpoint=settings.OTEL_ENDPOINT)
