@@ -89,6 +89,7 @@ class Citation(BaseModel):
     """A single source chunk returned alongside an answer."""
     chunk_id: str
     document_id: str
+    document_name: Optional[str] = None
     score: float
 
 

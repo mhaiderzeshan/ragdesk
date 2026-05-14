@@ -193,6 +193,7 @@ async def generate_answer(
         Citation(
             chunk_id=c["chunk_id"],
             document_id=c["document_id"],
+            document_name=c.get("document_name"),
             score=c["score"],
         )
         for c in chunks
@@ -325,6 +326,7 @@ async def generate_answer_stream(
         {
             "chunk_id": c["chunk_id"],
             "document_id": c["document_id"],
+            "document_name": c.get("document_name"),
             "score": c["score"],
         }
         for c in chunks

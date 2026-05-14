@@ -61,7 +61,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (sources && sources.length > 0) {
       sourceHtml = `<div class="sources">
         <strong>Sources:</strong><br/>
-        ${sources.map(s => `<span class="source-badge" title="Relevance: ${s.score ? s.score.toFixed(2) : 'N/A'}">Doc ${s.document_id ? s.document_id.substring(0,8) : 'Unknown'}</span>`).join('')}
+        ${sources.map(s => {
+          const displayName = s.document_name && s.document_name !== 'Unknown' 
+            ? s.document_name 
+            : 'Doc ' + (s.document_id ? s.document_id.substring(0,8) : 'Unknown');
+          return `<span class="source-badge" title="Relevance: ${s.score ? s.score.toFixed(2) : 'N/A'}">${displayName}</span>`;
+        }).join('')}
       </div>`;
     }
 
@@ -98,7 +103,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const logId = e.currentTarget.getAttribute('data-log-id');
           const rating = parseInt(e.currentTarget.getAttribute('data-rating'));
           try {
-            await API.submitFeedback(logId, rating, "");
+            await API.submitFeedback(logId, rating, null);
             e.currentTarget.style.color = rating === 1 ? 'var(--success)' : 'var(--danger)';
             e.currentTarget.parentElement.style.opacity = '1';
           } catch (error) {

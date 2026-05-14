@@ -36,7 +36,7 @@ async def search_similar_chunks(
     Cosine similarity search via pgvector (<=> operator = cosine distance).
 
     Returns a list of dicts with keys:
-        chunk_id, document_id, text, score, metadata_jsonb
+        chunk_id, document_id, document_name, text, score, metadata_jsonb
 
     Security: Both org_id and kb_id filters are applied at the DB level,
     preventing cross-tenant leakage even if application logic is bypassed.
@@ -93,6 +93,7 @@ async def search_similar_chunks(
             chunks.document_id,
             chunks.text,
             chunks.metadata_jsonb,
+            documents.filename AS document_filename,
             (1 - (chunks.embedding <=> {vec_str}::vector)) AS score
         FROM chunks
         JOIN documents ON chunks.document_id = documents.id
@@ -126,6 +127,7 @@ async def search_similar_chunks(
         {
             "chunk_id": str(row["chunk_id"]),
             "document_id": str(row["document_id"]),
+            "document_name": row["document_filename"] or "Unknown",
             "text": row["text"],
             "score": float(row["score"]),
             "metadata_jsonb": row["metadata_jsonb"],
