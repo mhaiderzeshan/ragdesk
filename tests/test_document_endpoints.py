@@ -45,6 +45,41 @@ class TestUploadDocument:
         assert body["filename"] == "report.pdf"
         assert body["status"] == "PENDING"
         assert "message" in body
+        assert _fake_tasks.process_document.delay.call_args.args[2] == str(TEST_KB_ID)
+
+    @pytest.mark.asyncio
+    async def test_upload_uses_requested_knowledge_base(self, client, seed_kb):
+        from app.models.knowledgebase import KnowledgeBase
+        from tests.conftest import TestSessionLocal
+
+        requested_kb_id = uuid.uuid4()
+        fake_doc_id = str(uuid.uuid4())
+        fake_path = f"uploads/{fake_doc_id}.pdf"
+
+        async with TestSessionLocal() as session:
+            session.add(
+                KnowledgeBase(
+                    id=requested_kb_id,
+                    name="Requested KB",
+                    org_id=TEST_ORG_ID,
+                )
+            )
+            await session.commit()
+
+        _fake_tasks.process_document.reset_mock()
+
+        with patch(
+            "app.api.endpoints.document.save_upload",
+            return_value=(fake_doc_id, fake_path),
+        ):
+            response = await client.post(
+                "/documents/upload",
+                data={"kb_id": str(requested_kb_id)},
+                files={"file": ("report.pdf", io.BytesIO(b"%PDF"), "application/pdf")},
+            )
+
+        assert response.status_code == 202
+        assert _fake_tasks.process_document.delay.call_args.args[2] == str(requested_kb_id)
 
     @pytest.mark.asyncio
     async def test_upload_no_knowledgebase_returns_400(self, client):

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import time as time_module
 import uuid
@@ -38,6 +39,8 @@ from app.services.retrieval import search_similar_chunks
 from app.schemas.chat import ChatResponse, Citation, sanitize_context
 
 tracer = trace.get_tracer(__name__)
+
+logger = logging.getLogger(__name__)
 
 # --- Gemini (embeddings only) ---
 genai.configure(api_key=settings.GOOGLE_API_KEY.get_secret_value())
@@ -99,6 +102,18 @@ async def _get_or_create_chat(
         if not chat:
             raise ValueError(f"Chat {chat_id} not found or access denied.")
         return chat
+
+    # Verify the requested KB belongs to this org before binding a chat to it.
+    # Retrieval is already org-scoped, but without this check a chat row could
+    # reference another tenant's kb_id.
+    kb_result = await db.execute(
+        select(KnowledgeBase).where(
+            KnowledgeBase.id == kb_id,
+            KnowledgeBase.org_id == org_id,
+        )
+    )
+    if not kb_result.scalar_one_or_none():
+        raise ValueError(f"Knowledge base {kb_id} not found or access denied.")
 
     chat = Chat(org_id=org_id, user_id=user_id, kb_id=kb_id)
     db.add(chat)
@@ -224,120 +239,151 @@ async def generate_answer_stream(
 
     Groq's streaming returns an iterator of chunks; we run it in a background
     thread and forward tokens to the async event loop via an asyncio.Queue.
+
+    Any error raised during streaming (retrieval failure, LLM error, invalid
+    chat/kb id) is emitted as a `{"event":"error",...}` SSE event followed by
+    `data: [DONE]` so the client always closes cleanly, and a partial assistant
+    message is persisted so the conversation history stays consistent.
     """
-    # 1. Embed + retrieve with tracing
-    with tracer.start_as_current_span("retrieval.embedding") as span:
-        span.set_attribute("org_id", str(org_id))
-        span.set_attribute("kb_id", str(kb_id))
-        span.set_attribute("embedding.model", EMBEDDING_MODEL)
-        start = time_module.perf_counter()
-        query_embedding = _embed_query(message)
-        span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
-
-    with tracer.start_as_current_span("retrieval.vector_search") as span:
-        span.set_attribute("org_id", str(org_id))
-        span.set_attribute("kb_id", str(kb_id))
-        span.set_attribute("top_k", top_k)
-        span.set_attribute("filters_applied", filters is not None)
-        start = time_module.perf_counter()
-        chunks = await search_similar_chunks(db, kb_id, org_id, query_embedding, top_k, filters)
-        span.set_attribute("chunks_retrieved", len(chunks))
-        span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
-
-    user_prompt = _build_user_prompt(message, chunks)
-
-    # 2. Stream LLM response via background thread → asyncio.Queue bridge
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
-    loop = asyncio.get_running_loop()
-
-    # Span for LLM streaming call — created here so the thread can use it
-    llm_span = tracer.start_span("llm.chat_completion.stream")
-    llm_span.set_attribute("llm.model", CHAT_MODEL)
-    llm_span.set_attribute("llm.provider", "groq")
-    llm_span.set_attribute("chunk_count", len(chunks))
-
-    def _producer():
-        try:
-            start = time_module.perf_counter()
-            stream = _groq_client.chat.completions.create(
-                model=CHAT_MODEL,
-                messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.2,
-                stream=True,
-            )
-            token_count = 0
-            for chunk in stream:
-                delta = chunk.choices[0].delta.content or ""
-                if delta:
-                    token_count += 1
-                    loop.call_soon_threadsafe(queue.put_nowait, delta)
-            llm_span.set_attribute("tokens_sent", token_count)
-            llm_span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
-        except Exception as e:
-            llm_span.set_status(Status(StatusCode.ERROR, str(e)))
-            llm_span.record_exception(e)
-            loop.call_soon_threadsafe(queue.put_nowait, f"__STREAM_ERROR__{e}")
-        finally:
-            llm_span.end()
-            loop.call_soon_threadsafe(queue.put_nowait, None)
-
-    thread = threading.Thread(target=_producer, daemon=True)
-    thread.start()
-
-    # 3. Persist user message
-    chat = await _get_or_create_chat(db, chat_id, org_id, user_id, kb_id)
-    user_msg = Message(
-        chat_id=chat.id, role="user", content=message, retrieved_chunk_ids=[]
-    )
-    db.add(user_msg)
-    await db.flush()
-
+    chat: Chat | None = None
     full_answer: list[str] = []
+    try:
+        # 1. Embed + retrieve with tracing
+        with tracer.start_as_current_span("retrieval.embedding") as span:
+            span.set_attribute("org_id", str(org_id))
+            span.set_attribute("kb_id", str(kb_id))
+            span.set_attribute("embedding.model", EMBEDDING_MODEL)
+            start = time_module.perf_counter()
+            query_embedding = _embed_query(message)
+            span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
 
-    # 4. Consume tokens from queue and yield as SSE
-    while True:
-        item = await queue.get()
-        if item is None:
-            break
-        if isinstance(item, str) and item.startswith("__STREAM_ERROR__"):
-            raise RuntimeError(item[16:])
-        full_answer.append(item)
-        yield f"data: {item}\n\n"
+        with tracer.start_as_current_span("retrieval.vector_search") as span:
+            span.set_attribute("org_id", str(org_id))
+            span.set_attribute("kb_id", str(kb_id))
+            span.set_attribute("top_k", top_k)
+            span.set_attribute("filters_applied", filters is not None)
+            start = time_module.perf_counter()
+            chunks = await search_similar_chunks(db, kb_id, org_id, query_embedding, top_k, filters)
+            span.set_attribute("chunks_retrieved", len(chunks))
+            span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
 
-    thread.join()
+        user_prompt = _build_user_prompt(message, chunks)
 
-    # 5. Persist assistant message
-    answer_text = "".join(full_answer)
-    chunk_ids = [c["chunk_id"] for c in chunks]
-    assistant_msg = Message(
-        chat_id=chat.id,
-        role="assistant",
-        content=answer_text,
-        retrieved_chunk_ids=chunk_ids,
-    )
-    db.add(assistant_msg)
-    await db.flush()
+        # 2. Stream LLM response via background thread → asyncio.Queue bridge
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
-    # 6. Emit citations as final SSE event
-    citations = [
-        {
-            "chunk_id": c["chunk_id"],
-            "document_id": c["document_id"],
-            "document_name": c.get("document_name"),
-            "score": c["score"],
-        }
-        for c in chunks
-    ]
-    payload = json.dumps(
-        {
-            "event": "citations",
-            "chat_id": str(chat.id),
-            "message_id": str(assistant_msg.id),
-            "citations": citations,
-        }
-    )
-    yield f"data: {payload}\n\n"
-    yield "data: [DONE]\n\n"
+        # Span for LLM streaming call — created here so the thread can use it
+        llm_span = tracer.start_span("llm.chat_completion.stream")
+        llm_span.set_attribute("llm.model", CHAT_MODEL)
+        llm_span.set_attribute("llm.provider", "groq")
+        llm_span.set_attribute("chunk_count", len(chunks))
+
+        producer_error: list[str | None] = []
+
+        def _producer():
+            try:
+                start = time_module.perf_counter()
+                stream = _groq_client.chat.completions.create(
+                    model=CHAT_MODEL,
+                    messages=[
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.2,
+                    stream=True,
+                )
+                token_count = 0
+                for chunk in stream:
+                    delta = chunk.choices[0].delta.content or ""
+                    if delta:
+                        token_count += 1
+                        loop.call_soon_threadsafe(queue.put_nowait, delta)
+                llm_span.set_attribute("tokens_sent", token_count)
+                llm_span.set_attribute("latency_ms", (time_module.perf_counter() - start) * 1000)
+            except Exception as e:
+                llm_span.set_status(Status(StatusCode.ERROR, str(e)))
+                llm_span.record_exception(e)
+                loop.call_soon_threadsafe(producer_error.append, str(e))
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+            finally:
+                llm_span.end()
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        thread = threading.Thread(target=_producer, daemon=True)
+        thread.start()
+
+        # 3. Persist user message
+        chat = await _get_or_create_chat(db, chat_id, org_id, user_id, kb_id)
+        user_msg = Message(
+            chat_id=chat.id, role="user", content=message, retrieved_chunk_ids=[]
+        )
+        db.add(user_msg)
+        await db.flush()
+
+        # 4. Consume tokens from queue and yield as SSE
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            full_answer.append(item)
+            yield f"data: {item}\n\n"
+
+        thread.join()
+
+        # If the producer thread hit an error, surface it as an SSE error event
+        # but keep any partial tokens we already streamed.
+        if producer_error:
+            raise RuntimeError(producer_error[0])
+
+        # 5. Persist assistant message
+        answer_text = "".join(full_answer)
+        chunk_ids = [c["chunk_id"] for c in chunks]
+        assistant_msg = Message(
+            chat_id=chat.id,
+            role="assistant",
+            content=answer_text,
+            retrieved_chunk_ids=chunk_ids,
+        )
+        db.add(assistant_msg)
+        await db.flush()
+
+        # 6. Emit citations as final SSE event
+        citations = [
+            {
+                "chunk_id": c["chunk_id"],
+                "document_id": c["document_id"],
+                "document_name": c.get("document_name"),
+                "score": c["score"],
+            }
+            for c in chunks
+        ]
+        payload = json.dumps(
+            {
+                "event": "citations",
+                "chat_id": str(chat.id),
+                "message_id": str(assistant_msg.id),
+                "citations": citations,
+            }
+        )
+        yield f"data: {payload}\n\n"
+        yield "data: [DONE]\n\n"
+    except Exception as e:
+        # Persist a partial/failed assistant turn so history stays consistent
+        # (otherwise we'd leave a user message with no assistant reply).
+        logger.exception("Streaming chat failed for kb_id=%s", kb_id)
+        if chat is not None:
+            try:
+                assistant_msg = Message(
+                    chat_id=chat.id,
+                    role="assistant",
+                    content="".join(full_answer),
+                    retrieved_chunk_ids=[],
+                )
+                db.add(assistant_msg)
+                await db.flush()
+            except Exception:
+                logger.exception("Could not persist partial assistant message")
+        error_payload = json.dumps({"event": "error", "detail": str(e)})
+        yield f"data: {error_payload}\n\n"
+        yield "data: [DONE]\n\n"

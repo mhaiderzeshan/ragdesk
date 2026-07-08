@@ -75,8 +75,8 @@ def save_upload(file: UploadFile) -> tuple[str, str]:
 
     try:
         s3_client.upload_fileobj(
-            file.file, 
-            settings.R2_BUCKET_NAME, 
+            file.file,
+            settings.R2_BUCKET_NAME,
             file_key,
             ExtraArgs={'ContentType': file.content_type or 'application/pdf'}
         )
@@ -84,3 +84,27 @@ def save_upload(file: UploadFile) -> tuple[str, str]:
         raise HTTPException(status_code=500, detail=f"Failed to upload to cloud storage: {str(e)}")
 
     return document_id, file_key
+
+
+def delete_object(file_key: str) -> bool:
+    """
+    Best-effort removal of an object from R2/S3 storage.
+
+    Used to clean up an orphaned upload when downstream processing fails to
+    enqueue (e.g. Celery unreachable) — without this the object would leak.
+    Returns True on success, False if the object was already absent or the
+    delete failed (callers log but do not raise, since this runs in a
+    cleanup path).
+    """
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=settings.R2_ENDPOINT_URL,
+        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY.get_secret_value(),
+        region_name="auto"
+    )
+    try:
+        s3_client.delete_object(Bucket=settings.R2_BUCKET_NAME, Key=file_key)
+        return True
+    except ClientError:
+        return False

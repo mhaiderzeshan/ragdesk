@@ -1,4 +1,4 @@
-import { API, showAlert, requireAuth } from './utils/api.js';
+import { API, showAlert, requireAuth, escapeHtml, escapeAttr } from './utils/api.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   requireAuth();
@@ -56,18 +56,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       kbGrid.innerHTML = kbs.map(kb => `
-        <div class="glass-panel card animate-fade-in" data-kb-id="${kb.id}">
+        <div class="glass-panel card animate-fade-in" data-kb-id="${escapeAttr(kb.id)}">
           <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <h3 class="card-title"><i class="fas fa-book"></i> ${kb.name}</h3>
-            <span class="source-badge">ID: ${kb.id.substring(0,8)}</span>
+            <h3 class="card-title"><i class="fas fa-book"></i> ${escapeHtml(kb.name)}</h3>
+            <span class="source-badge">ID: ${escapeHtml(String(kb.id).slice(0,8))}</span>
           </div>
-          <p style="color: var(--text-secondary); margin-top: 10px; font-size: 0.9rem;">${kb.description || 'No description provided.'}</p>
-          
+          <p style="color: var(--text-secondary); margin-top: 10px; font-size: 0.9rem;">${escapeHtml(kb.description || 'No description provided.')}</p>
+
           <div style="margin-top: 1.5rem; border-top: 1px solid var(--surface-border); padding-top: 1rem;">
             <label class="form-label" style="font-size: 0.8rem;">Upload Document</label>
             <div style="display: flex; gap: 8px;">
-              <input type="file" id="file-${kb.id}" accept=".pdf,.txt,.docx" style="padding: 6px; font-size: 0.8rem;">
-              <button class="btn btn-secondary upload-btn" data-kb-id="${kb.id}" style="padding: 6px 12px; font-size: 0.8rem;">Upload</button>
+              <input type="file" id="file-${escapeAttr(kb.id)}" accept=".pdf,.txt,.docx" style="padding: 6px; font-size: 0.8rem;">
+              <button class="btn btn-secondary upload-btn" data-kb-id="${escapeAttr(kb.id)}" style="padding: 6px 12px; font-size: 0.8rem;">Upload</button>
             </div>
           </div>
         </div>
@@ -77,28 +77,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.querySelectorAll('.upload-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation(); // Prevent card click event if we add one later
-          const kbId = e.target.getAttribute('data-kb-id');
+          // Use currentTarget — the spinner <i> we inject below can become
+          // e.target, which would make getAttribute('data-kb-id') return null.
+          const button = e.currentTarget;
+          const kbId = button.getAttribute('data-kb-id');
           const fileInput = document.getElementById(`file-${kbId}`);
           const file = fileInput.files[0];
-          
+
           if (!file) {
             showAlert('dashboard-alert-container', 'Please select a file first.');
             return;
           }
 
-          const originalText = e.target.innerHTML;
-          e.target.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-          e.target.disabled = true;
+          const originalText = button.innerHTML;
+          button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+          button.disabled = true;
 
           try {
-            await API.uploadDocument(file);
+            await API.uploadDocument(file, kbId);
             showAlert('dashboard-alert-container', `Document ${file.name} uploaded successfully!`, 'success');
             fileInput.value = '';
           } catch (error) {
             showAlert('dashboard-alert-container', `Upload failed: ${error.message}`);
           } finally {
-            e.target.innerHTML = originalText;
-            e.target.disabled = false;
+            button.innerHTML = originalText;
+            button.disabled = false;
           }
         });
       });
@@ -106,7 +109,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (error) {
       kbGrid.innerHTML = `
         <div class="alert alert-error" style="grid-column: 1 / -1;">
-          Failed to load knowledge bases: ${error.message}
+          Failed to load knowledge bases: ${escapeHtml(error.message)}
         </div>
       `;
     }

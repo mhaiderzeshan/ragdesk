@@ -22,7 +22,7 @@
     
     <!-- Sidebar -->
     <aside class="sidebar">
-      <h2 class="text-gradient"><i class="fas fa-layer-group"></i> RAGDesk</h2>
+      <h2 class="brand-mark"><i class="fas fa-layer-group"></i> RAGDesk</h2>
       <ul class="nav-menu">
         <li class="nav-item">
           <a href="index.html"><i class="fas fa-home"></i> Dashboard</a>
@@ -33,14 +33,9 @@
       </ul>
 
       <div style="margin-top: 2rem;">
-        <label class="form-label">Select Knowledge Base</label>
+        <label class="form-label" for="kb-select">Knowledge Base</label>
         <select id="kb-select" style="margin-bottom: 1rem;">
           <option value="">Loading...</option>
-        </select>
-
-        <label class="form-label" style="display: none;" id="doc-label">Select Document (Optional)</label>
-        <select id="doc-select" style="display: none;">
-          <option value="">All Documents</option>
         </select>
       </div>
 
@@ -51,33 +46,71 @@
       </div>
     </aside>
 
-    <!-- Chat Area -->
-    <main class="chat-container">
-      <header class="chat-header">
-        <h3 id="chat-title">General Chat</h3>
-        <button id="clear-chat-btn" class="btn btn-secondary btn-icon" title="Clear Chat">
-          <i class="fas fa-trash-alt"></i>
-        </button>
-      </header>
+    <main class="workspace-shell">
+      <section class="chat-container" aria-label="Chat">
+        <header class="chat-header">
+          <div>
+            <p class="eyebrow">Workspace</p>
+            <h1 id="chat-title">Ask your knowledge base</h1>
+          </div>
+          <button id="clear-chat-btn" class="btn-icon header-action" title="Clear chat" aria-label="Clear chat">
+            <i class="fas fa-trash-alt"></i>
+          </button>
+        </header>
 
-      <div id="chat-messages" class="chat-messages">
-        <!-- Initial Greeting -->
-        <div class="message ai">
-          <div class="message-avatar"><i class="fas fa-robot"></i></div>
-          <div class="message-content">
-            Hello! I am your AI assistant. Select a Knowledge Base on the left to start asking questions about your documents.
+        <div id="chat-messages" class="chat-messages">
+          <div class="message ai">
+            <div class="message-avatar"><i class="fas fa-robot"></i></div>
+            <div class="message-content">
+              Select a knowledge base, upload a PDF, then ask questions while processing updates appear in artifacts.
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="chat-input-area">
-        <form id="chat-form" class="chat-input-wrapper">
-          <textarea id="chat-input" class="chat-input" placeholder="Ask a question..." required></textarea>
-          <button type="submit" id="send-btn" class="send-btn">
-            <i class="fas fa-paper-plane"></i>
+        <div class="chat-input-area">
+          <form id="chat-form" class="chat-input-wrapper">
+            <textarea id="chat-input" class="chat-input" placeholder="Ask a question..." required></textarea>
+            <button type="submit" id="send-btn" class="send-btn" title="Send message" aria-label="Send message">
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <aside class="artifacts-panel" aria-label="Artifacts">
+        <header class="artifacts-header">
+          <div>
+            <p class="eyebrow">Artifacts</p>
+            <h2>Documents</h2>
+          </div>
+          <button id="refresh-artifacts-btn" class="btn-icon header-action" title="Refresh artifacts" aria-label="Refresh artifacts">
+            <i class="fas fa-rotate"></i>
+          </button>
+        </header>
+
+        <div id="artifact-alert" class="artifact-alert" role="status" aria-live="polite"></div>
+
+        <form id="artifact-upload-form" class="upload-dropzone">
+          <input type="file" id="artifact-file-input" accept=".pdf" hidden>
+          <button type="button" id="artifact-file-button" class="upload-picker">
+            <i class="fas fa-file-arrow-up"></i>
+          </button>
+          <div class="upload-copy">
+            <strong id="selected-file-label">Upload PDF</strong>
+            <span id="upload-hint">Choose a file for the selected knowledge base.</span>
+          </div>
+          <button type="submit" id="artifact-upload-btn" class="btn btn-primary upload-submit" disabled>
+            <i class="fas fa-cloud-arrow-up"></i> Upload
           </button>
         </form>
-      </div>
+
+        <div id="artifacts-list" class="artifacts-list">
+          <div class="artifact-empty">
+            <i class="fas fa-folder-open"></i>
+            <span>No artifacts yet.</span>
+          </div>
+        </div>
+      </aside>
     </main>
 
   </div>

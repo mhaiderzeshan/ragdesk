@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     OTEL_EXPORTER: str = "console"
     OTEL_ENDPOINT: str = ""
 
+    # When True, the SQLAlchemy engine echoes every statement (dev only).
+    # Keep False in production — echoing leaks query text + parameters to logs.
+    DEBUG: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

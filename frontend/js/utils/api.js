@@ -1,5 +1,55 @@
 const BASE_URL = typeof CONFIG !== 'undefined' ? CONFIG.API_URL : 'http://localhost:8080/api/v1';
 
+// ─── HTML escaping helpers ────────────────────────────────────────
+// Any server-supplied value interpolated into innerHTML MUST be escaped to
+// prevent stored XSS (e.g. a KB name containing <img src=x onerror=...>).
+export function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// Attribute escaping — quotes are the dangerous characters inside attributes.
+export function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
+// ─── Auth helpers ─────────────────────────────────────────────────
+function onLoginPage() {
+  return window.location.pathname.toLowerCase().endsWith('login.html');
+}
+
+// Force the user back to login when a request is rejected as unauthenticated
+// (e.g. expired JWT). Without this, every API call fails with a generic
+// "Not authenticated" error and the app appears broken.
+function handleUnauthorized() {
+  API.setToken(null);
+  if (!onLoginPage()) {
+    window.location.href = 'login.html';
+  }
+}
+
+// ─── Safe JSON parsing ────────────────────────────────────────────
+// Guard against response.json() throwing SyntaxError on empty (204) or
+// non-JSON (HTML gateway error) bodies, which would surface as a confusing
+// "Unexpected end of JSON input" message.
+async function parseJsonSafely(response) {
+  const contentLength = response.headers.get('Content-Length');
+  const contentType = response.headers.get('Content-Type') || '';
+  if (contentLength === '0') return null;
+  if (!contentType.includes('application/json')) return null;
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 export const API = {
   getToken() {
     return localStorage.getItem('ragdesk_token');
@@ -40,10 +90,17 @@ export const API = {
 
     try {
       const response = await fetch(url, config);
-      const data = await response.json();
+
+      // 401 → token expired or invalid: clear it and bounce to login.
+      if (response.status === 401) {
+        handleUnauthorized();
+        throw new Error('Your session has expired. Please sign in again.');
+      }
+
+      const data = await parseJsonSafely(response);
 
       if (!response.ok) {
-        throw new Error(data.detail || 'An error occurred');
+        throw new Error((data && data.detail) || `Request failed (${response.status})`);
       }
       return data;
     } catch (error) {
@@ -65,8 +122,13 @@ export const API = {
       body: formData
     });
 
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Login failed');
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new Error('Incorrect email or password.');
+    }
+
+    const data = await parseJsonSafely(response);
+    if (!response.ok) throw new Error((data && data.detail) || 'Login failed');
 
     this.setToken(data.access_token);
     return data;
@@ -92,20 +154,34 @@ export const API = {
   },
 
   // Document Endpoints
-  async uploadDocument(file) {
+  async uploadDocument(file, kbId = null) {
     const formData = new FormData();
     formData.append('file', file);
+    if (kbId) {
+      formData.append('kb_id', kbId);
+    }
     return this.request('/documents/upload', {
       method: 'POST',
       body: formData
     });
   },
 
+  async getDocuments() {
+    return this.request('/documents');
+  },
+
+  async getDocumentStatus(documentId) {
+    return this.request(`/documents/${documentId}/status`);
+  },
+
   // Chat Endpoints
-  async chatWithKb(kbId, query, chatId = null) {
+  // Accepts an optional AbortSignal so callers can cancel an in-flight request
+  // (e.g. when the user clears the chat or switches knowledge base).
+  async chatWithKb(kbId, query, chatId = null, signal) {
     return this.request('/chat', {
       method: 'POST',
-      body: { kb_id: kbId, message: query, chat_id: chatId }
+      body: { kb_id: kbId, message: query, chat_id: chatId },
+      signal
     });
   },
 
@@ -121,10 +197,14 @@ export function showAlert(containerId, message, type = 'error') {
   const container = document.getElementById(containerId);
   if (!container) return;
 
+  // Escape the message — server-supplied detail strings may contain markup.
+  const safeMessage = escapeHtml(message);
+  const icon = type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle';
+
   container.innerHTML = `
-    <div class="alert alert-${type} animate-fade-in">
-      <i class="fas ${type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle'}" style="margin-top: 3px;"></i>
-      <div>${message}</div>
+    <div class="alert alert-${escapeAttr(type)} animate-fade-in">
+      <i class="fas ${icon}" style="margin-top: 3px;"></i>
+      <div>${safeMessage}</div>
     </div>
   `;
 

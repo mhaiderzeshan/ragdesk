@@ -2,6 +2,8 @@ from app.schemas import RegistrationRequest, OrganizationCreate, UserCreate
 from app.repositories.auth import AuthRepository
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.models import User
+from app.core.config import settings
+from datetime import timedelta
 import logging
 
 logger = logging.getLogger(__name__)
@@ -40,11 +42,16 @@ class AuthService:
         return user
 
     def create_user_token(self, user: User) -> str:
-        # Create the JWT token with the user data
+        # Create the JWT token with the user data.
+        # Pass the configured TTL — without this the token silently falls back
+        # to the hardcoded 15-minute default in create_access_token.
         token_data = {
             "sub": str(user.id),
             "org_id": str(user.org_id),
             "email": user.email,
             "role": user.role,
         }
-        return create_access_token(data=token_data)
+        return create_access_token(
+            data=token_data,
+            expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        )

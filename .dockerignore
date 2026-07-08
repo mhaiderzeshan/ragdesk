@@ -3,4 +3,40 @@ venv/
 __pycache__/
 *.pyc
 .git/
+.env# Environments
 .env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases & uploads
+chroma_db/
+uploads/
+*.sqlite3
+*.db
+
+# Temporary & Output files
+alembic_output.txt
+docker_ps.txt
+fix_db.py
+RAGDesk_Project_Blueprint.pdf
+
+# IDEs & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+.kilo/
